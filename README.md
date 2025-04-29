@@ -16,7 +16,7 @@ A modern, browser-like GUI for Kubernetes cluster management built with Wails
 ## Installation
 Installation is available for Linux only so far.
 ```
-curl -O "https://github.com/digitalstudium/kubeplorer/releases/download/0.0.1/kubeplorer-linux-amd-64.bin" && sudo install ./kubeplorer-linux-amd-64.bin /usr/local/bin/kubeplorer && rm -f ./kubeplorer-linux-amd-64.bin
+curl -OL "https://github.com/digitalstudium/kubeplorer/releases/download/0.0.1/kubeplorer-linux-amd-64.bin" && sudo install ./kubeplorer-linux-amd-64.bin /usr/local/bin/kubeplorer && rm -f ./kubeplorer-linux-amd-64.bin
 ```
 
 ## License
