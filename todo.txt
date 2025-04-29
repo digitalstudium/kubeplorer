@@ -1,0 +1,23 @@
+Features:
+1. Live logging
+2. Port forwarding
+3. Network debug
+4. When no list namespaces permission and no default namespace available, ask user to input namespace and write it to kube config
+5. Node exec
+7. Sorted columns
+8. Remove header if not found or no search results
+9. Columns for all workloads and network resources
+10. PgUp PgDown End Home in resources panel
+11. Complete translation
+12. Back to previous cluster
+13. Select AI model (from menu? modal?)
+16. Make Ctrl + <key> work in monaco editor after Escape pressing
+
+Bugs:
+1. Green cluster status on empty main screen
+2. Escape for modal window does not work
+3. Tooltip for one row not shown up
+4. Copy button overflow when long names
+5. Tooltip for checking/disconnected not shown
+7. Red current cluster must redirect to cluster selection page
+8. Mixed statictics with previous page

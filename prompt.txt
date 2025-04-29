@@ -1,0 +1,1 @@
+Now I have only defaultTab, but I want to have separate html for every new tab with own id.

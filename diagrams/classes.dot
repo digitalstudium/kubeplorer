@@ -1,0 +1,47 @@
+digraph ClassDiagram {
+  rankdir=BT;
+  node [shape=record, fontname="Arial", fontsize=10];
+
+  // Base classes
+  Panel [label="{Panel|+ header1ValueEl\l+ header2ValueEl\l+ searchBoxEl\l+ clearSearchBoxEl\l+ panelEl\l+ listEl\l|+ getAllListElements()\l+ setupEventListeners()\l+ select()\l+ clear()\l+ search()\l}"];
+  ModalWindow [label="{ModalWindow|+ windowEl\l+ windowInnerEl\l+ windowHeaderEl\l|+ close()\l}"];
+  Resource [label="{Resource|+ cluster\l+ namespace\l+ apiResource\l+ resource\l+ htmlEl\l+ nameEl\l+ optionalColumnsEl\l+ ageAndActionsEl\l+ ageEl\l+ actionButtonsEl\l|+ fill()\l+ createResourceName()\l+ createOptionalColumns()\l+ createAgeAndActions()\l+ showInModal()\l+ view()\l+ edit()\l+ delete()\l}"];
+
+  // Inherited classes
+  NamespacesPanel [label="{NamespacesPanel||+ update()\l}"];
+  ApiResourcesPanel [label="{ApiResourcesPanel||+ update()\l+ createGroupSection()\l+ showCreateGroupModal()\l+ showEditGroupModal()\l}"];
+  ResourcesPanel [label="{ResourcesPanel||+ update()\l+ showCreateResourceModal()\l+ updateStatistics()\l}"];
+  GroupModalWindow [label="{GroupModalWindow||+ filterItems()\l+ static saveGroups()\l}"];
+  PodResource [label="{PodResource||+ setupLogsButton()\l+ createLogsDropdown()\l+ viewLogs()\l}"];
+  SecretResource [label="{SecretResource||+ decode()\l+ decodeHelper()\l}"];
+
+  // Utility classes
+  Utils [label="{Utils|static lang\l|static copyItem()\lstatic createEl()\lstatic createErrorMessage()\lstatic translate()\lstatic createActionBtn()\l}"];
+  Config [label="{Config|static lang\l}"];
+
+  // Inheritance relationships
+  NamespacesPanel -> Panel [arrowhead="empty"];
+  ApiResourcesPanel -> Panel [arrowhead="empty"];
+  ResourcesPanel -> Panel [arrowhead="empty"];
+  GroupModalWindow -> ModalWindow [arrowhead="empty"];
+  PodResource -> Resource [arrowhead="empty"];
+  SecretResource -> Resource [arrowhead="empty"];
+
+  // Composition/association relationships
+  NamespacesPanel -> ApiResourcesPanel [label="apiResourcesPanel"];
+  NamespacesPanel -> ResourcesPanel [label="resourcesPanel"];
+  ApiResourcesPanel -> NamespacesPanel [label="namespacesPanel"];
+  ApiResourcesPanel -> ResourcesPanel [label="resourcesPanel"];
+  ResourcesPanel -> NamespacesPanel [label="namespacesPanel"];
+  ResourcesPanel -> ApiResourcesPanel [label="apiResourcesPanel"];
+  ResourcesPanel -> Resource [style="dashed"];
+  ResourcesPanel -> PodResource [style="dashed"];
+  ResourcesPanel -> SecretResource [style="dashed"];
+
+  // Dependency relationships
+  ApiResourcesPanel -> GroupModalWindow [style="dashed"];
+  Resource -> ModalWindow [style="dashed"];
+  Resource -> Utils [style="dashed"];
+  Panel -> Utils [style="dashed"];
+  Utils -> Config [style="dashed"];
+}

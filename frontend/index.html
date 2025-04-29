@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+  <head>
+    <title data-translate="Kubernetes Explorer">Kubeplorer</title>
+    <meta charset="UTF-8" />
+  </head>
+
+  <body>
+    <div class="tabs-container">
+      <button class="new-tab-btn" tabindex="-1">+</button>
+    </div>
+    <template>
+      <div class="tab-content">
+        <div id="loadingIndicator" class="loading-indicator" style="display: none">
+            <div class="loading-spinner"></div>
+            <div class="loading-message"></div>
+        </div>          
+        <div id="clusterScreen" class="clusterScreen active">
+          <div class="clusterPanel">
+            <div class="header1Container">
+              <div class="panelTitle" data-translate="Select Cluster"></div>
+            </div>
+            <div class="clusterList" id="clusterList"></div>
+          </div>
+        </div>
+
+        <div id="mainScreen" class="screen">
+          <div class="header1Container">
+            <button class="back-button" tabindex="-1">
+              <i class="fas fa-arrow-left"></i>
+              <span data-translate="Back to cluster selection"></span>
+            </button>
+            <div class="clusterInfo">
+              <div class="panelTitle" data-translate="Current cluster: "></div>
+              <div class="selectedClusterName"></div>
+              <div class="clusterStatus checking" id="mainClusterStatus">
+                <i class="fas fa-circle"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="content">
+            <div class="column1">
+              <div class="panel1">
+                <div class="header1Container">
+                  <div
+                    class="header1"
+                    data-translate="Namespace selection"
+                  ></div>
+                  <div class="header1Value"></div>
+                </div>
+
+                <div class="header2Container">
+                  <div class="header2" data-translate="Selected:"></div>
+                  <div class="header2Value"></div>
+                </div>
+              </div>
+
+              <div class="panel2">
+                <div class="header1Container">
+                  <div
+                    class="header1"
+                    data-translate="Resource kind selection"
+                  ></div>
+                  <div class="header1Value"></div>
+                  <button class="create-group-btn" tabindex="-1">
+                    <i class="fas fa-plus"></i>
+                    <span data-translate="Create group"></span>
+                  </button>
+                </div>
+
+                <div class="header2Container">
+                  <div class="header2" data-translate="Selected:"></div>
+                  <div class="header2Value"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="column2">
+              <div class="panel3">
+                <div class="header1Container">
+                  <div class="header1" data-translate="Resources type: "></div>
+
+                  <div class="header1Value" style="margin-left: 5px"></div>
+
+                  <button class="create-resource-btn" tabindex="-1">
+                    <i class="fas fa-plus"></i>
+                    <span data-translate="Create"></span>
+                    <span
+                      id="createButtonApiResource"
+                      data-translate="resource"
+                    ></span>
+                  </button>
+                </div>
+
+                <div class="header2Container">
+                  <div class="header2" data-translate="Statistics:"></div>
+                  <div class="header2Value"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script src="./src/App.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,130 @@
+@startuml
+class Config {
+  +static lang: string
+}
+
+class Utils {
+  +copyItem(text: string): void
+  +createEl(className: string, textContent: string = "", tagName: string = "div"): HTMLElement
+  +translate(key: string): string
+  +createActionBtn(hint: string, dataText: string, clickHandler?: (event: MouseEvent, dataText: string) => void): HTMLButtonElement
+}
+
+class Panel {
+  +header1ValueEl: HTMLElement
+  +header2ValueEl: HTMLElement
+  +searchBoxEl: HTMLElement
+  +clearSearchBoxEl: HTMLElement
+  +listEl: HTMLElement
+  +listItemClass: string
+  +selectedEl: HTMLElement
+
+  +getAllListElements(): HTMLCollectionOf<Element>
+  +setupEventListeners(): void
+  +selectItemInList(event: MouseEvent): HTMLElement | null
+  +clearUi(): void
+  +search(): void
+}
+
+class NamespacesPanel extends Panel {
+  +apiResourcesPanel: ApiResourcesPanel
+  +resourcesPanel: ResourcesPanel
+
+  +setupEventListeners(): void
+  +clickList(event: MouseEvent): void
+  +populateList(cluster: string): Promise<void>
+}
+
+class ApiResourcesPanel extends Panel {
+  +namespacesPanel: NamespacesPanel
+  +resourcesPanel: ResourcesPanel
+
+  +setupEventListeners(): void
+  +clickList(event: MouseEvent): void
+  +search(): void
+}
+
+class ResourcesPanel extends Panel {
+  +namespacesPanel: NamespacesPanel
+  +apiResourcesPanel: ApiResourcesPanel
+  +optionalColumns: HTMLElement
+  +currentUpdateAbortController: AbortController | null
+
+  +update(cluster: string): Promise<void>
+  +async updateHtml(cluster: string): void
+  +checkAbort(signal: AbortSignal): void
+  +removeNoResourcesElement(): void
+  +removeStaleResources(resourceItems: HTMLCollectionOf<Element>, resources: any[], signal: AbortSignal): void
+  +processResources(cluster: string, namespace: string, apiResource: string, resources: any[], existingItems: HTMLCollectionOf<Element>, signal: AbortSignal): void
+  +updateExistingResource(item: HTMLElement, resource: any, apiResource: string): void
+  +updateElementContent(parent: HTMLElement, selector: string, value: string): void
+  +addNewResource(cluster: string, namespace: string, apiResource: string, resource: any): void
+  +createResource(cluster: string, namespace: string, apiResource: string, resource: any): Resource
+  +updateStatistics(): void
+  +updateHeader(apiResource: string): void
+}
+
+class ModalWindow {
+  +windowEl: HTMLElement
+  +windowInnerEl: HTMLElement
+  +windowHeaderEl: HTMLElement
+  +modalContent: string
+  +modalClass: string
+  +title: string
+  +button?: string
+  +buttonHandler?: () => void
+
+  +constructor(modalContent: string, modalClass: string, title: string, button?: string, buttonHandler?: () => void)
+  +close(): void
+}
+
+class GroupModalWindow extends ModalWindow {
+  +searchBoxEl: HTMLInputElement
+  +listId: string
+
+  +filterItems(): void
+  +static saveGroups(apiResourcesGroups: any[]): void
+}
+
+class Resource {
+  +cluster: string
+  +namespace: string
+  +apiResource: string
+  +resource: any
+  +baseActions: { [key: string]: () => void }
+  +extraActions: { [key: string]: () => void }
+  +htmlEl: HTMLElement
+  +nameEl: HTMLElement
+  +optionalColumnsEl: HTMLElement
+  +ageAndActionsEl: HTMLElement
+  +ageEl: HTMLElement
+  +actionButtonsEl: HTMLElement
+
+  +constructor(cluster: string, namespace: string, apiResource: string, resource: any)
+  +fill(): void
+  +createResourceName(): void
+  +createOptionalColumns(): void
+  +createAgeAndActions(): void
+  +showInModal(type: string, content: string, title: string, button?: string, editable?: boolean): void
+  +async view(): Promise<void>
+  +async edit(): Promise<void>
+  +async delete(): Promise<void>
+}
+
+class PodResource extends Resource {
+  +extraActions: { [key: string]: (event: MouseEvent) => void }
+
+  +setupLogsButton(event: MouseEvent, resourceItem: HTMLElement): void
+  +createLogsDropdown(): HTMLSelectElement
+  +viewLogs(containerName: string): Promise<void>
+}
+
+class SecretResource extends Resource {
+  +extraActions: { [key: string]: () => void }
+
+  +async decode(): Promise<void>
+}
+
+
+
+@enduml
