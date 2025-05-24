@@ -1,0 +1,17 @@
+Clusters
+
+1. Open kubeplorer
+2. Add cluster. Assert if cluster is added successfully to tab.
+3. Remove cluster. Assert if cluster is removed successfully from tab.
+4. Disconnect cluster. Assert if cluster is disconnected successfully on tab.
+5. Connect cluster. Assert if cluster is connected successfully on tab.
+
+Tabs functionality
+
+1. Open kubeplorer
+2. Connect to some cluster
+3. Open another tab and assert if it is opened successfully.
+4. Connect to another cluster and assert if it is connected successfully on tab.
+5. Switch between tabs and assert if the active tab is changed successfully and cluster content is updated.
+6. Close tab. Assert if tab is closed successfully.
+

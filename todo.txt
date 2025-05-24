@@ -21,3 +21,4 @@ Bugs:
 5. Tooltip for checking/disconnected not shown
 7. Red current cluster must redirect to cluster selection page
 8. Mixed statictics with previous page
+9. Updating resource name leads to resource creation, not updating
