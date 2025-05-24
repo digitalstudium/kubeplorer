@@ -53,6 +53,87 @@ func (a *App) startup(ctx context.Context) {
 	go a.StartWebSocketServer()
 }
 
+// Replace all your extraction functions with these:
+func extract[T any](obj map[string]interface{}, key string, defaultVal T) T {
+	if val, ok := obj[key].(T); ok {
+		return val
+	}
+	return defaultVal
+}
+
+func extractMap(obj map[string]interface{}, key string) map[string]interface{} {
+	return extract(obj, key, map[string]interface{}{})
+}
+
+func extractString(obj map[string]interface{}, key string) string {
+	return extract(obj, key, "")
+}
+
+func extractInt64(obj map[string]interface{}, key string) int64 {
+	return extract(obj, key, int64(0))
+}
+
+func extractSlice(obj map[string]interface{}, key string) []interface{} {
+	return extract(obj, key, []interface{}{})
+}
+
+// Consolidated clients struct
+type KubeClients struct {
+	Clientset     *kubernetes.Clientset
+	DynamicClient dynamic.Interface
+	RestConfig    *rest.Config
+}
+
+func (a *App) getKubeClients(clusterName string) (*KubeClients, error) {
+	config, err := getClientConfig(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KubeClients{
+		Clientset:     clientset,
+		DynamicClient: dynamicClient,
+		RestConfig:    config,
+	}, nil
+}
+
+// Consolidated resource finding
+func (a *App) findResourceInfo(clusterName, resourceName string) (ResourceInfo, schema.GroupVersionResource, error) {
+	apiResources, err := a.GetApiResources(clusterName)
+	if err != nil {
+		return ResourceInfo{}, schema.GroupVersionResource{}, fmt.Errorf("failed to get API resources: %w", err)
+	}
+
+	for _, resources := range apiResources {
+		for _, r := range resources {
+			if strings.EqualFold(r.Name, resourceName) {
+				gv, err := schema.ParseGroupVersion(r.Version)
+				if err != nil {
+					return ResourceInfo{}, schema.GroupVersionResource{}, fmt.Errorf("failed to parse group version %q: %w", r.Version, err)
+				}
+
+				gvr := schema.GroupVersionResource{
+					Group:    gv.Group,
+					Version:  gv.Version,
+					Resource: r.Name,
+				}
+				return r, gvr, nil
+			}
+		}
+	}
+	return ResourceInfo{}, schema.GroupVersionResource{}, fmt.Errorf("resource %q not found", resourceName)
+}
+
 // loadKubeConfig loads the default kubeconfig.
 func loadKubeConfig() (clientcmdapi.Config, error) {
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -109,39 +190,20 @@ func getClientConfig(clusterName string) (*rest.Config, error) {
 	return restConfig, nil
 }
 
-// Updated functions:
-func getClientset(clusterName string) (*kubernetes.Clientset, error) {
-	restConfig, err := getClientConfig(clusterName)
-	if err != nil {
-		return nil, err
-	}
-	return kubernetes.NewForConfig(restConfig)
-}
-
-func getDynamicClient(clusterName string) (dynamic.Interface, error) {
-	restConfig, err := getClientConfig(clusterName)
-	if err != nil {
-		return nil, err
-	}
-	return dynamic.NewForConfig(restConfig)
-}
-
 // TestClusterConnectivity attempts to list Nodes in a cluster to verify credentials and connectivity.
 func (a *App) TestClusterConnectivity(clusterName string) bool {
-	clientset, err := getClientset(clusterName)
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
 		log.Printf("Connectivity test failed for %s: %v", clusterName, err)
 		return false
 	}
 
-	// Try listing nodes as a connectivity test
-	_, err = clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+	_, err = clients.Clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		// A 403 means we are at least authenticated, just not authorized to list nodes.
+		// A 403 means we are at least authenticated, just not authorized
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == 403 {
 			return true
 		}
-		// log.Printf("Error testing connectivity for %s: %v", clusterName, err)
 		return false
 	}
 	return true
@@ -160,7 +222,7 @@ func (a *App) GetClusters() map[string]*clientcmdapi.Context {
 // GetNamespaces retrieves the list of namespaces for a given cluster.
 // If the user lacks permission, the function falls back to the current context's namespace.
 func (a *App) GetNamespaces(clusterName string) ([]string, error) {
-	clientset, err := getClientset(clusterName)
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +237,7 @@ func (a *App) GetNamespaces(clusterName string) ([]string, error) {
 		return nil, fmt.Errorf("context %q not found in kubeconfig", clusterName)
 	}
 
-	namespaces, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
+	namespaces, err := clients.Clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		// If it's a 403, return the context's default namespace
 		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == 403 {
@@ -189,7 +251,6 @@ func (a *App) GetNamespaces(clusterName string) ([]string, error) {
 		return nil, err
 	}
 
-	// Extract namespace names
 	var namespaceNames []string
 	for _, ns := range namespaces.Items {
 		if ns.Name != "" {
@@ -234,19 +295,16 @@ type APIResourceMap map[string][]ResourceInfo
 
 // GetApiResources retrieves API resources that are allowed to list for the specified cluster.
 func (a *App) GetApiResources(clusterName string) (APIResourceMap, error) {
-	clientset, err := getClientset(clusterName)
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Clientset: %w", err)
+		return nil, fmt.Errorf("failed to get clients: %w", err)
 	}
 
-	discoveryClient := discovery.NewDiscoveryClient(clientset.RESTClient())
+	discoveryClient := discovery.NewDiscoveryClient(clients.Clientset.RESTClient())
 
-	// Get API resources, allowing partial failures
 	_, apiGroupResources, err := discoveryClient.ServerGroupsAndResources()
 	if err != nil {
-		// Handle partial discovery errors (like metrics server being down)
 		if discoveryErr, ok := err.(*discovery.ErrGroupDiscoveryFailed); ok {
-			// Log failed groups but continue with partial results
 			log.Printf("Partial API group discovery failure: %v", discoveryErr.Groups)
 		} else {
 			return nil, fmt.Errorf("failed to retrieve API resources: %w", err)
@@ -258,18 +316,15 @@ func (a *App) GetApiResources(clusterName string) (APIResourceMap, error) {
 	for _, groupResource := range apiGroupResources {
 		groupVersion := groupResource.GroupVersion
 
-		// Exclude groups starting with "metrics.k8s.io" because it has "pods" and "nodes" resources. It's temporary workaround for deduplication
 		if strings.HasPrefix(groupVersion, "metrics.k8s.io") {
 			continue
 		}
 
 		for _, resource := range groupResource.APIResources {
-			// Skip subresources (e.g., pods/status)
 			if strings.Contains(resource.Name, "/") {
 				continue
 			}
 
-			// Only include resources that support listing
 			if slices.Contains(resource.Verbs, "list") {
 				apiResourcesMap[groupVersion] = append(apiResourcesMap[groupVersion], ResourceInfo{
 					Name:       resource.Name,
@@ -333,49 +388,82 @@ func formatAge(timestamp string) string {
 }
 
 // GetResourcesInNamespace retrieves resources of a given type from a specific namespace in a cluster.
-func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace string) ([]interface{}, error) {
-	apiResources, err := a.GetApiResources(clusterName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get API resources: %w", err)
+// First, create helper functions for pod and deployment processing:
+func calculatePodStatus(pod unstructured.Unstructured) (status string, restarts int32, readyStatus string) {
+	if pod.GetDeletionTimestamp() != nil {
+		return "Terminating", 0, calculatePodReadyStatus(pod)
 	}
 
-	// Attempt to find a match for the requested resource by name (singular/plural).
-	var resourceInfo ResourceInfo
-	found := false
-	for _, resources := range apiResources {
-		for _, r := range resources {
-			if strings.EqualFold(r.Name, resourceName) { // Exact match
-				resourceInfo = r
-				found = true
-				break
+	statusObj := extractMap(pod.Object, "status")
+	status = extractString(statusObj, "phase")
+	
+	if containerStatuses := extractSlice(statusObj, "containerStatuses"); len(containerStatuses) > 0 {
+		for _, cs := range containerStatuses {
+			if container, ok := cs.(map[string]interface{}); ok {
+				restarts += int32(extractInt64(container, "restartCount"))
+				
+				// Check for waiting/terminated states
+				if state := extractMap(container, "state"); len(state) > 0 {
+					if waiting := extractMap(state, "waiting"); len(waiting) > 0 {
+						if reason := extractString(waiting, "reason"); reason != "" {
+							status = reason
+							break
+						}
+					} else if terminated := extractMap(state, "terminated"); len(terminated) > 0 {
+						if reason := extractString(terminated, "reason"); reason != "" {
+							status = reason
+							break
+						}
+					}
+				}
 			}
 		}
-		if found {
-			break
+	}
+	
+	return status, restarts, calculatePodReadyStatus(pod)
+}
+
+func extractContainerNames(spec map[string]interface{}) []string {
+	var containerNames []string
+	
+	// Init containers
+	for _, initC := range extractSlice(spec, "initContainers") {
+		if m, ok := initC.(map[string]interface{}); ok {
+			if name := extractString(m, "name"); name != "" {
+				containerNames = append(containerNames, name)
+			}
 		}
 	}
+	
+	// Regular containers
+	for _, c := range extractSlice(spec, "containers") {
+		if m, ok := c.(map[string]interface{}); ok {
+			if name := extractString(m, "name"); name != "" {
+				containerNames = append(containerNames, name)
+			}
+		}
+	}
+	
+	return containerNames
+}
 
-	dynamicClient, err := getDynamicClient(clusterName)
+// Now the simplified main function:
+func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace string) ([]interface{}, error) {
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
 		return nil, err
 	}
 
-	gv, err := schema.ParseGroupVersion(resourceInfo.Version)
+	resourceInfo, gvr, err := a.findResourceInfo(clusterName, resourceName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse group version %q: %w", resourceInfo.Version, err)
-	}
-
-	gvr := schema.GroupVersionResource{
-		Group:    gv.Group,
-		Version:  gv.Version,
-		Resource: resourceInfo.Name,
+		return nil, err
 	}
 
 	var list *unstructured.UnstructuredList
 	if resourceInfo.Namespaced {
-		list, err = dynamicClient.Resource(gvr).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
+		list, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
 	} else {
-		list, err = dynamicClient.Resource(gvr).List(context.Background(), metav1.ListOptions{})
+		list, err = clients.DynamicClient.Resource(gvr).List(context.Background(), metav1.ListOptions{})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list resources: %w", err)
@@ -383,85 +471,24 @@ func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace strin
 
 	var responses []interface{}
 	for _, item := range list.Items {
+		base := ResourceResponse{
+			Name:     item.GetName(),
+			Kind:     item.GetKind(),
+			Metadata: extractMap(item.Object, "metadata"),
+			Spec:     extractMap(item.Object, "spec"),
+			Age:      formatAge(item.GetCreationTimestamp().Format(timeFormat)),
+		}
+
 		switch strings.ToLower(resourceInfo.Kind) {
 		case "pod":
+			status, restarts, readyStatus := calculatePodStatus(item)
 			pod := PodResponse{
-				ResourceResponse: ResourceResponse{
-					Name:     item.GetName(),
-					Kind:     item.GetKind(),
-					Metadata: extractMap(item.Object, "metadata"),
-					Spec:     extractMap(item.Object, "spec"),
-					Age:      formatAge(item.GetCreationTimestamp().Format(timeFormat)),
-				},
-				ReadyStatus: calculatePodReadyStatus(item),
+				ResourceResponse: base,
+				Status:          status,
+				Restarts:        restarts,
+				ReadyStatus:     readyStatus,
+				Containers:      extractContainerNames(extractMap(item.Object, "spec")),
 			}
-			status := extractMap(item.Object, "status")
-			pod.Status = extractString(status, "phase", "N/A")
-			pod.Restarts = 0
-
-			// Container statuses
-			// Check if the pod is terminating (based on deletionTimestamp in metadata)
-			// Container statuses
-			// Check if the pod is terminating (based on deletionTimestamp in metadata)
-			if item.GetDeletionTimestamp() != nil {
-				pod.Status = "Terminating"
-			} else {
-				if containerStatuses, ok := status["containerStatuses"].([]interface{}); ok {
-					pod.Restarts = 0
-					for _, cs := range containerStatuses {
-						container, ok := cs.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						// Sum restarts from all containers
-						restartCount := extractInt64(container, "restartCount")
-						pod.Restarts += int32(restartCount)
-
-						// Check each container's state for waiting/terminated reasons
-						state := extractMap(container, "state")
-						if waiting := extractMap(state, "waiting"); len(waiting) > 0 {
-							if reason := extractString(waiting, "reason", ""); reason != "" {
-								pod.Status = reason
-								break // Use the first waiting reason found
-							}
-						} else if terminated := extractMap(state, "terminated"); len(terminated) > 0 {
-							if reason := extractString(terminated, "reason", ""); reason != "" {
-								pod.Status = reason
-								break // Use the first terminated reason found
-							}
-						}
-					}
-				}
-			}
-
-			// Calculate and set the ready status
-			pod.ReadyStatus = calculatePodReadyStatus(item)
-			// Collect container names (including init containers)
-			spec := extractMap(item.Object, "spec")
-			var containerNames []string
-
-			// Init containers
-			if initContainers, ok := spec["initContainers"].([]interface{}); ok {
-				for _, initC := range initContainers {
-					if m, ok := initC.(map[string]interface{}); ok {
-						if name, ok := m["name"].(string); ok {
-							containerNames = append(containerNames, name)
-						}
-					}
-				}
-			}
-
-			// Regular containers
-			if containers, ok := spec["containers"].([]interface{}); ok {
-				for _, c := range containers {
-					if m, ok := c.(map[string]interface{}); ok {
-						if name, ok := m["name"].(string); ok {
-							containerNames = append(containerNames, name)
-						}
-					}
-				}
-			}
-			pod.Containers = containerNames
 			responses = append(responses, pod)
 		case "deployment":
 			deployment, err := extractDeploymentFields(item)
@@ -471,77 +498,41 @@ func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace strin
 			}
 			responses = append(responses, deployment)
 		default:
-			resp := ResourceResponse{
-				Name:     item.GetName(),
-				Kind:     item.GetKind(),
-				Metadata: extractMap(item.Object, "metadata"),
-				Spec:     extractMap(item.Object, "spec"),
-				Age:      formatAge(item.GetCreationTimestamp().Format(timeFormat)),
-			}
-			responses = append(responses, resp)
+			responses = append(responses, base)
 		}
 	}
 	return responses, nil
 }
 
 // GetResourceYAML retrieves the YAML representation of a specific resource
-func (a *App) GetResourceYAML(clusterName string, resourceName string, namespace string, name string) (string, error) {
-	apiResources, err := a.GetApiResources(clusterName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get API resources: %w", err)
-	}
-
-	// Find the resource info
-	var resourceInfo ResourceInfo
-	found := false
-	for _, resources := range apiResources {
-		for _, r := range resources {
-			if strings.EqualFold(r.Name, resourceName) { // Exact match first
-				resourceInfo = r
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	dynamicClient, err := getDynamicClient(clusterName)
+func (a *App) GetResourceYAML(clusterName, resourceName, namespace, name string) (string, error) {
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
 		return "", err
 	}
 
-	gv, err := schema.ParseGroupVersion(resourceInfo.Version)
+	resourceInfo, gvr, err := a.findResourceInfo(clusterName, resourceName)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse group version %q: %w", resourceInfo.Version, err)
-	}
-
-	gvr := schema.GroupVersionResource{
-		Group:    gv.Group,
-		Version:  gv.Version,
-		Resource: resourceInfo.Name,
+		return "", err
 	}
 
 	var obj *unstructured.Unstructured
 	if resourceInfo.Namespaced {
-		obj, err = dynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		obj, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	} else {
-		obj, err = dynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
+		obj, err = clients.DynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
 	}
 	if err != nil {
 		return "", fmt.Errorf("failed to get resource: %w", err)
 	}
 
-	// Remove status and other runtime fields
-	// delete(obj.Object, "status")
-	metadata := obj.Object["metadata"].(map[string]interface{})
-	delete(metadata, "creationTimestamp")
-	delete(metadata, "resourceVersion")
-	delete(metadata, "uid")
-	delete(metadata, "managedFields")
+	// Clean up metadata
+	if metadata := extractMap(obj.Object, "metadata"); len(metadata) > 0 {
+		for _, field := range []string{"creationTimestamp", "resourceVersion", "uid", "managedFields"} {
+			delete(metadata, field)
+		}
+	}
 
-	// Convert to YAML
 	yamlBytes, err := yaml.Marshal(obj.Object)
 	if err != nil {
 		return "", fmt.Errorf("failed to encode resource as YAML: %w", err)
@@ -551,56 +542,20 @@ func (a *App) GetResourceYAML(clusterName string, resourceName string, namespace
 
 // DeleteResource deletes a specified resource in the given cluster and namespace.
 func (a *App) DeleteResource(clusterName, namespace, apiResource, name string) error {
-	dynamicClient, err := getDynamicClient(clusterName)
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
-		return fmt.Errorf("failed to get dynamic client: %w", err)
+		return fmt.Errorf("failed to get clients: %w", err)
 	}
 
-	// Get the API resources map to find the correct GroupVersionResource (GVR)
-	apiResources, err := a.GetApiResources(clusterName)
+	resourceInfo, gvr, err := a.findResourceInfo(clusterName, apiResource)
 	if err != nil {
-		return fmt.Errorf("failed to get API resources: %w", err)
+		return err
 	}
 
-	var resourceInfo ResourceInfo
-	found := false
-
-	// Find the API resource information
-	for _, resources := range apiResources {
-		for _, r := range resources {
-			if strings.EqualFold(r.Name, apiResource) { // Case-insensitive match
-				resourceInfo = r
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("resource type %q not found in API resources", apiResource)
-	}
-
-	// Parse group version
-	gv, err := schema.ParseGroupVersion(resourceInfo.Version)
-	if err != nil {
-		return fmt.Errorf("failed to parse group version %q: %w", resourceInfo.Version, err)
-	}
-
-	// Construct GroupVersionResource (GVR)
-	gvr := schema.GroupVersionResource{
-		Group:    gv.Group,
-		Version:  gv.Version,
-		Resource: resourceInfo.Name,
-	}
-
-	// Delete the resource
 	if resourceInfo.Namespaced {
-		err = dynamicClient.Resource(gvr).Namespace(namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
+		err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
 	} else {
-		err = dynamicClient.Resource(gvr).Delete(context.Background(), name, metav1.DeleteOptions{})
+		err = clients.DynamicClient.Resource(gvr).Delete(context.Background(), name, metav1.DeleteOptions{})
 	}
 
 	if err != nil {
@@ -616,65 +571,28 @@ func (a *App) DeleteResource(clusterName, namespace, apiResource, name string) e
 
 // GetPodContainerLogs retrieves logs for a specific container in a pod
 func (a *App) GetPodContainerLogs(clusterName, namespace, podName, containerName string) (string, error) {
-	clientset, err := getClientset(clusterName)
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
 		return "", fmt.Errorf("failed to get clientset: %w", err)
 	}
 
-	// Set up the log options
-	logOptions := &corev1.PodLogOptions{
+	req := clients.Clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Container: containerName,
 		Follow:    false,
-	}
-
-	// Get the logs
-	req := clientset.CoreV1().Pods(namespace).GetLogs(podName, logOptions)
+	})
+	
 	podLogs, err := req.Stream(context.Background())
 	if err != nil {
 		return "", fmt.Errorf("failed to get logs stream: %w", err)
 	}
 	defer podLogs.Close()
 
-	// Read the logs
 	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, podLogs)
-	if err != nil {
+	if _, err := io.Copy(buf, podLogs); err != nil {
 		return "", fmt.Errorf("failed to read logs stream: %w", err)
 	}
 
 	return buf.String(), nil
-}
-
-// Safely extract a map from an interface{}
-func extractMap(obj map[string]interface{}, key string) map[string]interface{} {
-	if val, ok := obj[key].(map[string]interface{}); ok {
-		return val
-	}
-	return map[string]interface{}{}
-}
-
-// Safely extract a string from a map
-func extractString(obj map[string]interface{}, key, defaultValue string) string {
-	if val, ok := obj[key].(string); ok {
-		return val
-	}
-	return defaultValue
-}
-
-// Safely extract an int64 from a map
-func extractInt64(obj map[string]interface{}, key string) int64 {
-	if val, ok := obj[key].(int64); ok {
-		return val
-	}
-	return 0
-}
-
-// Safely extract a slice from a map
-func extractSlice(obj map[string]interface{}, key string) []interface{} {
-	if val, ok := obj[key].([]interface{}); ok {
-		return val
-	}
-	return []interface{}{}
 }
 
 func calculatePodReadyStatus(pod unstructured.Unstructured) string {
@@ -805,41 +723,35 @@ func (p *OllamaProxy) ForwardToOllama(requestBody string) (string, error) {
 
 // ApplyResource applies a Kubernetes resource from YAML to the specified cluster.
 func (a *App) ApplyResource(clusterName string, yamlContent string) error {
-	// Decode the YAML content into an unstructured object
 	obj := &unstructured.Unstructured{}
-	err := yaml.Unmarshal([]byte(yamlContent), obj)
-	if err != nil {
+	if err := yaml.Unmarshal([]byte(yamlContent), obj); err != nil {
 		return fmt.Errorf("failed to decode YAML: %w", err)
 	}
 
-	// Get the GVR (GroupVersionResource) from the object
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to get clients: %w", err)
+	}
+
 	gvk := obj.GroupVersionKind()
 	gvr := schema.GroupVersionResource{
 		Group:    gvk.Group,
 		Version:  gvk.Version,
-		Resource: strings.ToLower(gvk.Kind) + "s", // Pluralize the kind
+		Resource: strings.ToLower(gvk.Kind) + "s",
 	}
 
-	// Get the dynamic client for the cluster
-	dynamicClient, err := getDynamicClient(clusterName)
-	if err != nil {
-		return fmt.Errorf("failed to get dynamic client: %w", err)
-	}
-
-	// Extract namespace from the object metadata, if present
 	namespace := obj.GetNamespace()
 	if namespace == "" {
 		namespace = defaultNamespace
 	}
 
-	// Check if the resource already exists
-	existingObj, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), obj.GetName(), metav1.GetOptions{})
+	existingObj, err := clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), obj.GetName(), metav1.GetOptions{})
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			return fmt.Errorf("failed to check if resource exists: %w", err)
 		}
-		// Resource does not exist, create it
-		_, err := dynamicClient.Resource(gvr).Namespace(namespace).Create(context.Background(), obj, metav1.CreateOptions{})
+		// Create new resource
+		_, err := clients.DynamicClient.Resource(gvr).Namespace(namespace).Create(context.Background(), obj, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create resource: %w", err)
 		}
@@ -847,9 +759,9 @@ func (a *App) ApplyResource(clusterName string, yamlContent string) error {
 		return nil
 	}
 
-	// Resource exists, update it
-	obj.SetResourceVersion(existingObj.GetResourceVersion()) // Required for updates
-	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Update(context.Background(), obj, metav1.UpdateOptions{})
+	// Update existing resource
+	obj.SetResourceVersion(existingObj.GetResourceVersion())
+	_, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Update(context.Background(), obj, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update resource: %w", err)
 	}
@@ -903,75 +815,31 @@ func (a *App) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	// Extract query parameters
 	query := r.URL.Query()
 	clusterName := query.Get("cluster")
 	namespace := query.Get("namespace")
 	podName := query.Get("pod")
 	containerName := query.Get("container")
 
-	// Optional command parameter
-	commandParam := query.Get("command")
-	var command []string
-	if commandParam != "" {
-		// Parse the command from the URL parameter
+	command := []string{"/bin/sh"}
+	if commandParam := query.Get("command"); commandParam != "" {
 		command = strings.Split(commandParam, ",")
-	} else {
-		command = []string{"/bin/sh"}
 	}
 
-	log.Printf("Starting terminal session: cluster=%s, namespace=%s, pod=%s, container=%s, command=%v",
-		clusterName, namespace, podName, containerName, command)
-
-	// Input validation
 	if clusterName == "" || namespace == "" || podName == "" || containerName == "" {
-		errMsg := "Missing required parameters"
-		log.Println(errMsg)
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, errMsg))
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Missing required parameters"))
 		return
 	}
 
-	// Get Kubernetes client configuration
-	config, err := getClientConfig(clusterName)
+	config, req, err := a.setupExecRequest(clusterName, namespace, podName, containerName, command, true)
 	if err != nil {
-		log.Printf("Error getting client config: %v", err)
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr,
-			fmt.Sprintf("Error getting client config: %v", err)))
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
 		return
 	}
 
-	// Create Kubernetes clientset
-	clientset, err := getClientset(clusterName)
-	if err != nil {
-		log.Printf("Error creating clientset: %v", err)
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr,
-			fmt.Sprintf("Error creating clientset: %v", err)))
-		return
-	}
-
-	// Set up exec request
-	req := clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Namespace(namespace).
-		Name(podName).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: containerName,
-			Command:   command,
-			Stdin:     true,
-			Stdout:    true,
-			Stderr:    false,
-			TTY:       true,
-		}, scheme.ParameterCodec)
-
-	log.Printf("Kubernetes API request URL: %s", req.URL().String())
-
-	// Create SPDY executor
 	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
-		log.Printf("SPDY executor creation failed: %v", err)
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr,
-			fmt.Sprintf("SPDY executor creation failed: %v", err)))
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
 		return
 	}
 
@@ -1103,7 +971,6 @@ func (a *App) handleEnvoyConfig(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Extract query parameters
 	query := r.URL.Query()
 	clusterName := query.Get("cluster")
 	namespace := query.Get("namespace")
@@ -1111,56 +978,24 @@ func (a *App) handleEnvoyConfig(w http.ResponseWriter, r *http.Request) {
 	containerName := query.Get("container")
 
 	commandParam := query.Get("command")
-	var command []string
-	if commandParam != "" {
-		// Parse the command from the URL parameter
-		command = strings.Split(commandParam, ",")
-	} else {
-		return
-	}
-
-	if clusterName == "" || namespace == "" || podName == "" {
+	if commandParam == "" || clusterName == "" || namespace == "" || podName == "" {
 		http.Error(w, "Missing required parameters", http.StatusBadRequest)
 		return
 	}
 
-	// Get Kubernetes client configuration
-	config, err := getClientConfig(clusterName)
+	command := strings.Split(commandParam, ",")
+	config, req, err := a.setupExecRequest(clusterName, namespace, podName, containerName, command, false)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting client config: %v", err), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Create Kubernetes clientset
-	clientset, err := getClientset(clusterName)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error creating clientset: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Set up exec request
-	req := clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Namespace(namespace).
-		Name(podName).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: containerName,
-			Command:   command,
-			Stdin:     false,
-			Stdout:    true,
-			Stderr:    false,
-			TTY:       false,
-		}, scheme.ParameterCodec)
-
-	// Create SPDY executor
 	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("SPDY executor creation failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Stream output directly to the HTTP response
 	stdoutReader, stdoutWriter := io.Pipe()
 	defer stdoutReader.Close()
 
@@ -1182,145 +1017,77 @@ func (a *App) handleEnvoyConfig(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, stdoutReader)
 }
 
-func (a *App) GetEvents(clusterName string, resourceName string, namespace string, name string) (string, error) {
-	// Fetch API resources to locate the resource info
-	apiResources, err := a.GetApiResources(clusterName)
+func (a *App) GetEvents(clusterName, resourceName, namespace, name string) (string, error) {
+	clients, err := a.getKubeClients(clusterName)
 	if err != nil {
-		return "", fmt.Errorf("failed to get API resources: %w", err)
+		return "", err
 	}
 
-	// Find the resource info
-	var resourceInfo ResourceInfo
-	found := false
-	for _, resources := range apiResources {
-		for _, r := range resources {
-			if strings.EqualFold(r.Name, resourceName) { // Exact match first
-				resourceInfo = r
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-
-	if !found {
-		return "", fmt.Errorf("resource %q not found in API resources", resourceName)
-	}
-
-	// Create a dynamic client for the cluster
-	dynamicClient, err := getDynamicClient(clusterName)
+	resourceInfo, gvr, err := a.findResourceInfo(clusterName, resourceName)
 	if err != nil {
-		return "", fmt.Errorf("failed to create dynamic client: %w", err)
+		return "", err
 	}
 
-	// Parse the group and version of the resource
-	gv, err := schema.ParseGroupVersion(resourceInfo.Version)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse group version %q: %w", resourceInfo.Version, err)
-	}
-
-	// Construct the GroupVersionResource (GVR) for the resource
-	gvr := schema.GroupVersionResource{
-		Group:    gv.Group,
-		Version:  gv.Version,
-		Resource: resourceInfo.Name,
-	}
-
-	// Fetch the resource object to get its UID
+	// Get the resource to extract its UID
 	var obj *unstructured.Unstructured
 	if resourceInfo.Namespaced {
-		obj, err = dynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		obj, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	} else {
-		obj, err = dynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
+		obj, err = clients.DynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
 	}
-
 	if err != nil {
 		return "", fmt.Errorf("failed to get resource: %w", err)
 	}
 
-	// Extract the UID of the resource
-	metadata, ok := obj.Object["metadata"].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("failed to extract metadata from resource")
-	}
-	uid, ok := metadata["uid"].(string)
-	if !ok {
+	uid := extractString(extractMap(obj.Object, "metadata"), "uid")
+	if uid == "" {
 		return "", fmt.Errorf("failed to extract UID from resource metadata")
 	}
 
-	// Fetch events related to the resource
-	eventsGVR := schema.GroupVersionResource{
-		Group:    "",
-		Version:  "v1",
-		Resource: "events",
-	}
-
+	// Get events
+	eventsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "events"}
 	var events *unstructured.UnstructuredList
+	
 	if resourceInfo.Namespaced {
-		events, err = dynamicClient.Resource(eventsGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{
+		events, err = clients.DynamicClient.Resource(eventsGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{
 			FieldSelector: fmt.Sprintf("involvedObject.uid=%s", uid),
 		})
 	} else {
-		events, err = dynamicClient.Resource(eventsGVR).List(context.Background(), metav1.ListOptions{
+		events, err = clients.DynamicClient.Resource(eventsGVR).List(context.Background(), metav1.ListOptions{
 			FieldSelector: fmt.Sprintf("involvedObject.uid=%s", uid),
 		})
 	}
-
 	if err != nil {
 		return "", fmt.Errorf("failed to list events: %w", err)
 	}
 
-	// Create a slice to hold event data
 	var eventList []map[string]string
-
 	for _, event := range events.Items {
 		eventData := event.Object
-
-		// Extract fields
-		eventType := getStringField(eventData, "type")
-		reason := getStringField(eventData, "reason")
-		message := getStringField(eventData, "message")
-
-		// Fixing the "From" field
-		from := getStringField(eventData, "reportingComponent")
-		if from == "<missing>" { // Fall back to older field
-			if source, ok := eventData["source"].(map[string]interface{}); ok {
-				from = getStringField(source, "component")
+		
+		from := extractString(eventData, "reportingComponent")
+		if from == "" {
+			if source := extractMap(eventData, "source"); len(source) > 0 {
+				from = extractString(source, "component")
 			}
 		}
 
-		// Fixing the "Age" field
-		age := getEventAge(eventData)
-
-		// Append event data to the slice
 		eventList = append(eventList, map[string]string{
-			"type":    eventType,
-			"reason":  reason,
-			"age":     age,
+			"type":    extractString(eventData, "type"),
+			"reason":  extractString(eventData, "reason"),
+			"age":     getEventAge(eventData),
 			"from":    from,
-			"message": message,
+			"message": extractString(eventData, "message"),
 		})
 	}
 
-	// Marshal the event list into JSON
 	jsonData, err := json.MarshalIndent(eventList, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal events to JSON: %w", err)
 	}
-
 	return string(jsonData), nil
 }
 
-// Helper function to safely extract string fields
-func getStringField(data map[string]interface{}, key string) string {
-	value, ok := data[key].(string)
-	if !ok {
-		return "<missing>"
-	}
-	return value
-}
 
 // Helper function to correctly calculate event age
 func getEventAge(eventData map[string]interface{}) string {
@@ -1335,4 +1102,27 @@ func getEventAge(eventData map[string]interface{}) string {
 		}
 	}
 	return "unknown"
+}
+
+func (a *App) setupExecRequest(clusterName, namespace, podName, containerName string, command []string, tty bool) (*rest.Config, *rest.Request, error) {
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return nil, nil, err
+	}
+	
+	req := clients.Clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Namespace(namespace).
+		Name(podName).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: containerName,
+			Command:   command,
+			Stdin:     tty,
+			Stdout:    true,
+			Stderr:    !tty,
+			TTY:       tty,
+		}, scheme.ParameterCodec)
+	
+	return clients.RestConfig, req, nil
 }
