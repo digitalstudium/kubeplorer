@@ -8,6 +8,7 @@ import {
 import { ForwardToOllama } from "../wailsjs/go/main/OllamaProxy.js";
 
 import { Utils } from "./Utils.js";
+import { Prompts } from "./Prompts.js"; // Add this import
 
 import "@fortawesome/fontawesome-free/css/all.css";
 import { ModalWindow } from "./ModalWindow.js";
@@ -82,31 +83,11 @@ export class Resource {
       // 2. Prepare the AI prompt
       if (fetchContentCallback) {
         const logs = await fetchContentCallback;
-        prompt = `Analyze these application logs and provide very short summary. This application is running on kubernetes, pod ${this.resource.name}, container ${containerName} . Don't ask to run any commands:\n${logs}`;
-        if (containerName == "istio-proxy") {
-          prompt = `Parse the provided Istio-proxy logs and output table of:
-
-        Inbound Connections
-        For each inbound request, list:
-
-        Source IP
-
-        HTTP method (e.g., GET/POST/PUT)
-
-        Request path (e.g., /api/v1/data)
-
-        HTTP status code
-
-        Outbound Connections
-        For each outbound request, list:
-
-        Destination host/IP
-
-        HTTP method
-
-        Request path
-
-        HTTP status code. Logs:\n${logs}`;
+        
+        if (containerName === "istio-proxy") {
+          prompt = Prompts.getIstioProxyPrompt(logs);
+        } else {
+          prompt = Prompts.getLogAnalysisPrompt(this.resource.name, containerName, logs);
         }
       }
 
@@ -336,7 +317,7 @@ export class Resource {
         return;
       }
 
-      const prompt = `These are events of kubernetes resource of kind ${this.apiResource}. Summaryze events, hint if any errors or warnings. Events: \n ${events}`;
+      const prompt = Prompts.getEventsAnalysisPrompt(this.apiResource, events);
 
       // Display the pod description in a modal
       this.setupEditorView(
