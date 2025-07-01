@@ -2,6 +2,9 @@
 
 A modern, browser-like GUI for Kubernetes cluster management built with Wails
 
+![Screenshot](https://github.com/user-attachments/assets/0bd5dae3-60ad-4159-b0d4-913fd611116c)
+
+
 ## Features
 
 - **Browser-Style Navigation**: Quickly switch between clusters and resources with an intuitive browser-like interface
