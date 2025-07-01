@@ -3,6 +3,7 @@ import { ApiResourcesPanel } from "./ApiResourcesPanel.js";
 import { ResourcesPanel } from "./ResourcesPanel.js";
 import { NamespacesPanel } from "./NamespacesPanel.js";
 import { Utils } from "./Utils.js";
+import { TabsManager } from "./TabsManager.js";
 import {
   GetClusters,
   TestClusterConnectivity,
@@ -17,141 +18,36 @@ import yamlWorker from "monaco-yaml/yaml.worker?worker";
 class App {
   constructor() {
     this.cluster = null;
-    this.tabStates = {};
     this.panels = [];
-    this.tabs = [];
-    this.tabIdCounter = 0;
-    this.template = document.getElementsByTagName("template")[0];
-    this.createNewTab(); // default tab
-    this.setupTabsSystem();
-    EventsOn("closeTab", () => this.closeTab(document.querySelector(".tab.active")));
+    this.clustersScreen = null;
+    this.clustersList = null;
+    this.mainScreen = null;
+    
+    // Initialize tabs manager
+    this.tabsManager = new TabsManager(this);
+    
+    EventsOn("closeTab", () => {
+      const activeTab = document.querySelector(".tab.active");
+      this.tabsManager.closeTab(activeTab);
+    });
   }
 
-  createTabContent() {
-    const tab = this.template.content
-      .cloneNode(true)
-      .querySelector(".tab-content");
-    this.tabs.push(tab);
-
-    // Set the ID to the current tab
-    this.tabs[this.tabIdCounter].id = this.tabIdCounter;
-
-    // Increment the tab ID counter
-    this.tabIdCounter++;
-  }
-
-  selectTabContent(idx) {
-    const currentTab = document.querySelector(".tab-content.active");
-    if (currentTab) {
-      currentTab.classList.remove("active");
-      currentTab.style.display = "none";
-    }
-    this.tabs[idx].classList.add("active");
-    this.tabs[idx].style.display = "flex";
-
-    // Append the new tab to the body and cache selectors for later use
-    document.body.prepend(this.tabs[idx]);
-    this.clustersScreen = this.tabs[idx].querySelector("#clusterScreen");
-    this.clustersList = this.tabs[idx].querySelector("#clusterList");
-    this.mainScreen = this.tabs[idx].querySelector("#mainScreen");
+  // Callback method called by TabsManager when tab content changes
+  onTabContentChanged(tabContent) {
+    // Cache selectors for the new tab content
+    this.clustersScreen = tabContent.querySelector("#clusterScreen");
+    this.clustersList = tabContent.querySelector("#clusterList");
+    this.mainScreen = tabContent.querySelector("#mainScreen");
 
     this.translateAll();
     this.setupEventListeners();
     this.updateClustersList();
   }
 
-  // Add this method to your App class
-  setupTabsSystem() {
-    const tabsContainer = document.querySelector(".tabs-container");
-    const newTabBtn = document.querySelector(".new-tab-btn");
-
-    // Set up event listener for the new tab button
-    newTabBtn.addEventListener("click", () => {
-      this.createNewTab();
-    });
-
-    // Set up event delegation for tab close buttons
-    tabsContainer.addEventListener("click", (event) => {
-      if (event.target.classList.contains("tab-close-btn")) {
-        const tab = event.target.parentElement;
-        this.closeTab(tab);
-      } else if (event.target.closest(".tab")) {
-        const tab = event.target.closest(".tab");
-        this.activateTab(tab);
-      }
-    });
-  }
-
-  createNewTab() {
-    const tabsContainer = document.querySelector(".tabs-container");
-    const newTabBtn = document.querySelector(".new-tab-btn");
-
-    // Create the new tab
-    const newTab = Utils.createEl("tab");
-    const tabTitle = document.createElement("span");
-    tabTitle.textContent = Utils.translate("Cluster selection");
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "tab-close-btn";
-    closeBtn.textContent = "×";
-    closeBtn.tabIndex = -1;
-
-    newTab.appendChild(tabTitle);
-    if (this.tabIdCounter != 0) {
-      newTab.appendChild(closeBtn);
-    }
-
-    tabsContainer.insertBefore(newTab, newTabBtn);
-
-    // Initialize the state for the new tab
-    this.tabStates[this.tabIdCounter] = {
-      cluster: null,
-      panels: [],
-    };
-
-    newTab.id = this.tabIdCounter;
-
-    // Activate the new tab
-    this.createTabContent();
-    this.activateTab(newTab);
-  }
-
-  closeTab(tab) {
-    // Don't close if it's the last tab
-    const allTabs = document.querySelectorAll(".tab");
-    if (allTabs.length <= 1) return;
-
-    const isActive = tab.classList.contains("active");
-
-    // Remove the tab
-    tab.remove();
-    this.tabs[tab.id].remove();
-
-    // If the closed tab was active, activate another tab
-    if (isActive) {
-      const remainingTabs = document.querySelectorAll(".tab");
-      const remainingTab = remainingTabs[remainingTabs.length - 1];
-      if (remainingTab) {
-        this.activateTab(remainingTab);
-      }
-    }
-  }
-
-  activateTab(tab) {
-    // Deactivate all tabs
-    document.querySelectorAll(".tab").forEach((t) => {
-      t.classList.remove("active");
-    });
-
-    // Restore the state of the active tab
-    const tabId = parseInt(tab.id, 10);
-    const tabState = this.tabStates[tabId];
-
+  // Callback method called by TabsManager when a tab is activated
+  onTabActivated(tabState) {
     this.cluster = tabState.cluster;
     this.panels = tabState.panels;
-
-    // Activate the selected tab
-    tab.classList.add("active");
-    this.selectTabContent(tab.id);
   }
 
   setupEventListeners() {
@@ -345,12 +241,11 @@ class App {
   goBackToClusterSelection() {
     this.clearUIState();
     this.cluster = null;
-    // Update active tab's title
-    const activeTab = document.querySelector(".tab.active");
-    if (activeTab) {
-      const titleSpan = activeTab.querySelector("span:first-child");
-      titleSpan.textContent = Utils.translate("Cluster selection");
-    }
+    
+    // Update tab state and title
+    this.tabsManager.updateCurrentTabState({ cluster: null, panels: [] });
+    this.tabsManager.updateActiveTabTitle(Utils.translate("Cluster selection"));
+    
     this.clustersScreen.classList.add("active");
     this.clustersScreen.style.display = "flex";
     this.mainScreen.classList.remove("active");
@@ -360,11 +255,10 @@ class App {
   selectCluster(cluster) {
     this.cluster = cluster;
     this.mainScreen.querySelector(".selectedClusterName").textContent = cluster;
-    const activeTab = document.querySelector(".tab.active");
-    if (activeTab) {
-      const titleSpan = activeTab.querySelector("span:first-child");
-      titleSpan.textContent = cluster;
-    }
+    
+    // Update tab title
+    this.tabsManager.updateActiveTabTitle(cluster);
+    
     this.clustersScreen.classList.remove("active");
     this.clustersScreen.style.display = "none";
     this.mainScreen.classList.add("active");
@@ -404,11 +298,11 @@ class App {
 
     this.panels = [panel1, panel2, panel3];
 
-    const activeTab = document.querySelector(".tab.active");
-    if (activeTab) {
-      const tabId = activeTab.id;
-      this.tabStates[tabId].panels = this.panels;
-    }
+    // Update tab state with new panels
+    this.tabsManager.updateCurrentTabState({ 
+      cluster: this.cluster, 
+      panels: this.panels 
+    });
 
     // Setup event listeners for each panel
     this.panels.forEach((panel) => panel.setupEventListeners());
