@@ -1,11 +1,10 @@
-import { GetPodContainerLogs } from "../wailsjs/go/main/App.js";
+import { GetPodContainerLogs } from "../../wailsjs/go/main/App.js";
 
 import { Resource } from "./Resource";
-
-import { Utils } from "./Utils.js";
+import { ModalWindow } from "../windows/ModalWindow.js";
+import { Utils } from "../utils/Utils.js";
 
 import "@fortawesome/fontawesome-free/css/all.css";
-import { ModalWindow } from "./ModalWindow.js";
 import { Terminal } from "@xterm/xterm";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { FitAddon } from "@xterm/addon-fit";

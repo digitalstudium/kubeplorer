@@ -1,8 +1,8 @@
-import { GetApiResources } from "../wailsjs/go/main/App";
-import { defaultApiResourcesGroups } from "./Config";
-import { GroupModalWindow } from "./GroupModalWindow";
+import { GetApiResources } from "../../wailsjs/go/main/App";
+import { GroupModalWindow } from "../windows/GroupModalWindow";
 import { Panel } from "./Panel";
-import { Utils } from "./Utils";
+import { Utils } from "../utils/Utils";
+import { defaultApiResourcesGroups } from "../utils/Config";
 
 let currentEditingGroup = null;
 export let apiResourcesGroups = defaultApiResourcesGroups;

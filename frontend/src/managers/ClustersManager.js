@@ -1,5 +1,5 @@
-import { GetClusters, TestClusterConnectivity } from "../wailsjs/go/main/App.js";
-import { Utils } from "./Utils.js";
+import { GetClusters, TestClusterConnectivity } from "../../wailsjs/go/main/App.js";
+import { Utils } from "../utils/Utils.js";
 
 export class ClustersManager {
   constructor(app) {

@@ -1,4 +1,4 @@
-import { GetNamespaces, GetDefaultNamespace } from "../wailsjs/go/main/App";
+import { GetNamespaces, GetDefaultNamespace } from "../../wailsjs/go/main/App";
 import { Panel } from "./Panel";
 
 export class NamespacesPanel extends Panel {

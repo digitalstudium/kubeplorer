@@ -1,13 +1,14 @@
-import "./style.css";
-import { ApiResourcesPanel } from "./ApiResourcesPanel.js";
-import { ResourcesPanel } from "./ResourcesPanel.js";
-import { NamespacesPanel } from "./NamespacesPanel.js";
-import { Utils } from "./Utils.js";
-import { TabsManager } from "./TabsManager.js";
-import "@fortawesome/fontawesome-free/css/all.css";
-import { ClustersManager } from "./ClustersManager.js";
 import { EventsOn, EventsOnce } from "../wailsjs/runtime/runtime.js";
 
+import "./styles/style.css";
+import { TabsManager } from "./managers/TabsManager.js";
+import { ClustersManager } from "./managers/ClustersManager.js";
+import { Utils } from "./utils/Utils.js";
+import { ApiResourcesPanel } from "./panels/ApiResourcesPanel.js";
+import { ResourcesPanel } from "./panels/ResourcesPanel.js";
+import { NamespacesPanel } from "./panels/NamespacesPanel.js";
+
+import "@fortawesome/fontawesome-free/css/all.css";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import yamlWorker from "monaco-yaml/yaml.worker?worker";

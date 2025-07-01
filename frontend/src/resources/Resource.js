@@ -3,16 +3,14 @@ import {
   DeleteResource,
   ApplyResource,
   GetEvents,
-} from "../wailsjs/go/main/App.js";
+} from "../../wailsjs/go/main/App.js";
+import { ForwardToOllama } from "../../wailsjs/go/main/OllamaProxy.js";
 
-import { ForwardToOllama } from "../wailsjs/go/main/OllamaProxy.js";
-
-import { Utils } from "./Utils.js";
-import { Prompts } from "./Prompts.js"; // Add this import
+import { Utils } from "../utils/Utils.js";
+import { Prompts } from "../utils/Prompts.js"; // Add this import
+import { ModalWindow } from "../windows/ModalWindow.js";
 
 import "@fortawesome/fontawesome-free/css/all.css";
-import { ModalWindow } from "./ModalWindow.js";
-
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 

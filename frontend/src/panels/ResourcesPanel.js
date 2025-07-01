@@ -2,13 +2,13 @@ import {
   GetResourcesInNamespace,
   ApplyResource,
   DeleteResource,
-} from "../wailsjs/go/main/App";
-import { SecretResource } from "./SecretResource";
-import { PodResource } from "./PodResource";
-import { Resource } from "./Resource";
+} from "../../wailsjs/go/main/App";
+import { SecretResource } from "../resources/SecretResource";
+import { PodResource } from "../resources/PodResource";
+import { Resource } from "../resources/Resource";
 import { Panel } from "./Panel";
-import { Utils } from "./Utils";
-import { ModalWindow } from "./ModalWindow.js";
+import { Utils } from "../utils/Utils";
+import { ModalWindow } from "../windows/ModalWindow.js";
 
 export class ResourcesPanel extends Panel {
   constructor(name, cluster, container, tab) {

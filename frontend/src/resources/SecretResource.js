@@ -1,6 +1,5 @@
-import { Resource } from "./Resource";
-
-import { Utils } from "./Utils.js";
+import { Resource } from "../resources/Resource";
+import { Utils } from "../utils/Utils.js";
 
 import "@fortawesome/fontawesome-free/css/all.css";
 import * as jsyaml from "js-yaml";
