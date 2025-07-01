@@ -4,11 +4,8 @@ import { ResourcesPanel } from "./ResourcesPanel.js";
 import { NamespacesPanel } from "./NamespacesPanel.js";
 import { Utils } from "./Utils.js";
 import { TabsManager } from "./TabsManager.js";
-import {
-  GetClusters,
-  TestClusterConnectivity,
-} from "../wailsjs/go/main/App.js";
 import "@fortawesome/fontawesome-free/css/all.css";
+import { ClustersManager } from "./ClustersManager.js";
 import { EventsOn, EventsOnce } from "../wailsjs/runtime/runtime.js";
 
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
@@ -23,7 +20,10 @@ class App {
     this.clustersList = null;
     this.mainScreen = null;
     
-    // Initialize tabs manager
+    // Initialize ClustersManager BEFORE TabsManager
+    this.clustersManager = new ClustersManager(this);
+    
+    // Initialize TabsManager after ClustersManager
     this.tabsManager = new TabsManager(this);
     
     EventsOn("closeTab", () => {
@@ -41,7 +41,7 @@ class App {
 
     this.translateAll();
     this.setupEventListeners();
-    this.updateClustersList();
+    this.clustersManager.updateClustersList(this.clustersList);
   }
 
   // Callback method called by TabsManager when a tab is activated
@@ -87,155 +87,6 @@ class App {
 
   clearUIState() {
     this.panels.forEach((panel) => panel.clear());
-  }
-
-  async updateClustersList() {
-    try {
-      const newClusters = await GetClusters();
-      let hasChanges = false;
-
-      // Handle empty clusters case
-      if (!newClusters || newClusters.length === 0) {
-        const errorMessage = Utils.createErrorMessage(
-          `No Kubernetes clusters found. Please check your kubeconfig.`,
-        );
-        if (this.clustersList.innerHTML !== errorMessage) {
-          this.clustersList.innerHTML = errorMessage;
-        }
-        return;
-      }
-
-      // Compare with existing clusters
-      const currentClusterItems =
-        this.clustersList.querySelectorAll(".cluster-item");
-      const currentClusterNames = Array.from(currentClusterItems).map((item) =>
-        item.id.replace("cluster-", ""),
-      );
-
-      // Check if cluster list has changed
-      const newClusterNames = Object.keys(newClusters);
-      if (
-        currentClusterNames.length !== newClusterNames.length ||
-        !currentClusterNames.every((name) => newClusterNames.includes(name))
-      ) {
-        hasChanges = true;
-
-        // Clear and rebuild the list
-        this.clustersList.innerHTML = "";
-        Object.entries(newClusters).forEach(([clusterName]) => {
-          const clusterItem = this.createClusterItem(clusterName);
-          this.clustersList.appendChild(clusterItem);
-        });
-      }
-
-      // Check connectivity and update statuses
-      const statusChanges =
-        await this.checkConnectivityWithChanges(newClusters);
-
-      // Schedule next update
-      if (!this._updateInterval) {
-        this._updateInterval = setInterval(
-          () => this.updateClustersList(),
-          1000,
-        );
-      }
-
-      return hasChanges || statusChanges;
-    } catch (error) {
-      console.error("Error fetching clusters:", error);
-      const errorMessage = Utils.createErrorMessage(
-        `Error loading clusters. Please check your kubeconfig.`,
-      );
-      if (this.clustersList.innerHTML !== errorMessage) {
-        this.clustersList.innerHTML = errorMessage;
-      }
-      return true; // Consider error as a change
-    }
-  }
-
-  async checkConnectivityWithChanges(clusters) {
-    let hasChanges = false;
-    const clusterPromises = Object.entries(clusters).map(
-      async ([clusterName]) => {
-        const isConnected = await TestClusterConnectivity(clusterName);
-        const statusElement = document.getElementById(`status-${clusterName}`);
-        const clusterElement = document.getElementById(
-          `cluster-${clusterName}`,
-        );
-
-        if (statusElement) {
-          const newStatusClass = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
-          if (statusElement.className !== newStatusClass) {
-            statusElement.className = newStatusClass;
-            statusElement.title = isConnected ? "Connected" : "Disconnected";
-            hasChanges = true;
-          }
-        }
-
-        if (clusterElement) {
-          const shouldBeDisabled = !isConnected;
-          const isCurrentlyDisabled =
-            clusterElement.classList.contains("disabled");
-
-          if (shouldBeDisabled !== isCurrentlyDisabled) {
-            clusterElement.classList.toggle("disabled", shouldBeDisabled);
-            clusterElement.onclick = isConnected
-              ? () => this.selectCluster(clusterName)
-              : null;
-            hasChanges = true;
-          }
-        }
-
-        return isConnected;
-      },
-    );
-
-    await Promise.all(clusterPromises);
-    return hasChanges;
-  }
-
-  createClusterItem(clusterName) {
-    const clusterItem = Utils.createEl("cluster-item disabled");
-    clusterItem.id = `cluster-${clusterName}`;
-    clusterItem.onclick = () => this.selectCluster(clusterName);
-
-    const clusterStatus = Utils.createEl("clusterStatus checking");
-    clusterStatus.id = `status-${clusterName}`;
-    clusterStatus.appendChild(Utils.createIconEl("fa-circle"));
-
-    clusterItem.append(
-      clusterStatus,
-      Utils.createIconEl("fa-server"),
-      document.createTextNode(clusterName),
-    );
-
-    return clusterItem;
-  }
-
-  async checkConnectivity(clusters) {
-    const clusterPromises = Object.entries(clusters).map(
-      async ([clusterName]) => {
-        const isConnected = await TestClusterConnectivity(clusterName);
-        const statusElement = document.getElementById(`status-${clusterName}`);
-        const clusterElement = document.getElementById(
-          `cluster-${clusterName}`,
-        );
-
-        if (statusElement) {
-          statusElement.className = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
-          statusElement.title = isConnected ? "Connected" : "Disconnected";
-        }
-
-        if (clusterElement) {
-          clusterElement.classList.toggle("disabled", !isConnected);
-          clusterElement.onclick = isConnected
-            ? () => this.selectCluster(clusterName)
-            : null;
-        }
-      },
-    );
-
-    await Promise.all(clusterPromises);
   }
 
   goBackToClusterSelection() {
@@ -324,14 +175,7 @@ class App {
   }
 
   async updateClusterStatus() {
-    if (!this.cluster) return;
-    const isConnected = await TestClusterConnectivity(this.cluster);
-    const statusElement = this.mainScreen.querySelector("#mainClusterStatus");
-
-    if (statusElement) {
-      statusElement.className = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
-      statusElement.title = isConnected ? "Connected" : "Disconnected";
-    }
+    await this.clustersManager.updateClusterStatus(this.cluster, this.mainScreen);
   }
 }
 
