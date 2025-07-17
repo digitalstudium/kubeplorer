@@ -103,6 +103,25 @@ export class PodResource extends Resource {
     terminal.loadAddon(new WebLinksAddon());
     terminal.open(document.getElementById("terminal"));
     fitAddon.fit();
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.ctrlKey && event.shiftKey && event.code === "KeyC") {
+        event.preventDefault();
+        const selection = terminal.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection);
+        }
+        return false;
+      }
+
+      // Ctrl+L для очистки терминала:
+      if (event.ctrlKey && event.code === "KeyL") {
+        event.preventDefault();
+        terminal.clear();
+        return false;
+      }
+
+      return true;
+    });
     let xtermSize = fitAddon.proposeDimensions();
     let resizeMessage = {
       type: "resize",

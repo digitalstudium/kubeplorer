@@ -91,6 +91,10 @@ export class ResourcesPanel extends Panel {
       if (!confirm(`Are you sure you want to delete selected resources?`)) {
         return;
       }
+
+      // Добавьте индикатор загрузки:
+      Utils.showLoadingIndicator("Deleting resources", this.tab);
+
       this.deleteBtn.style.display = "none";
 
       const selectedNamespace = this.stateManager.getState("selectedNamespace");
@@ -109,7 +113,12 @@ export class ResourcesPanel extends Panel {
         }
       }
       this.toggleCheckboxes.checked = false;
-      alert(`Resources deleted successfully.`);
+
+      // Скройте индикатор и покажите результат:
+      Utils.hideLoadingIndicator(this.tab);
+      if (this.tab.classList.contains("active")) {
+        alert(`Resources deleted successfully.`);
+      }
     });
 
     this.toggleCheckboxes.addEventListener("change", (event) => {

@@ -81,11 +81,15 @@ export class Resource {
       // 2. Prepare the AI prompt
       if (fetchContentCallback) {
         const logs = await fetchContentCallback;
-        
+
         if (containerName === "istio-proxy") {
           prompt = Prompts.getIstioProxyPrompt(logs);
         } else {
-          prompt = Prompts.getLogAnalysisPrompt(this.resource.name, containerName, logs);
+          prompt = Prompts.getLogAnalysisPrompt(
+            this.resource.name,
+            containerName,
+            logs,
+          );
         }
       }
 
@@ -217,7 +221,14 @@ export class Resource {
 
   setupEditorView(content, title, button, buttonHandler, type, editable) {
     const modalContent = `<div class="editor"></div>`;
-    new ModalWindow(this.tab, modalContent, "yaml-content", title, button, buttonHandler);
+    new ModalWindow(
+      this.tab,
+      modalContent,
+      "yaml-content",
+      title,
+      button,
+      buttonHandler,
+    );
 
     const container = this.tab.querySelector(".editor");
 
@@ -244,7 +255,10 @@ export class Resource {
 
   async update() {
     try {
-      Utils.showLoadingIndicator(Utils.translate("Updating resource"), this.tab);
+      Utils.showLoadingIndicator(
+        Utils.translate("Updating resource"),
+        this.tab,
+      );
       const updatedContent = this.editorView.getValue(); // Get content from Monaco
       await ApplyResource(this.cluster, updatedContent);
       Utils.hideLoadingIndicator(this.tab);
@@ -281,7 +295,10 @@ export class Resource {
     }
 
     try {
-      Utils.showLoadingIndicator(Utils.translate("Deleting resource"), this.tab);
+      Utils.showLoadingIndicator(
+        Utils.translate("Deleting resource"),
+        this.tab,
+      );
       await DeleteResource(
         this.cluster,
         this.namespace,
@@ -289,7 +306,9 @@ export class Resource {
         this.resource.name,
       );
       Utils.hideLoadingIndicator(this.tab);
-      alert(`Resource ${this.resource.name} deleted successfully.`);
+      if (this.tab.classList.contains("active")) {
+        alert(`Resource ${this.resource.name} deleted successfully.`);
+      }
     } catch (error) {
       console.error(`Failed to delete resource ${this.resource.name}:`, error);
     } finally {
