@@ -15,8 +15,6 @@ export class ApiResourcesPanel extends Panel {
   constructor(name, cluster, container, tab, stateManager = null) {
     super(name, cluster, container, tab);
     this.stateManager = stateManager;
-    this.namespacesPanel = null;
-    this.resourcesPanel = null;
     this.selectedElText = "pods";
     this.buttonEl = document.querySelector(".create-group-btn");
     this.buttonFunction = () => this.showCreateGroupModal();
@@ -73,6 +71,7 @@ export class ApiResourcesPanel extends Panel {
       this.listEl.appendChild(uncategorizedSection);
     }
     this.selectedEl = this.listEl.querySelector(".selected");
+    this.header2ValueEl.textContent = this.selectedElText;
     // Save groups after update
     GroupModalWindow.saveGroups(apiResourcesGroups);
   }
@@ -321,11 +320,13 @@ export class ApiResourcesPanel extends Panel {
     if (!newSelection) {
       return;
     }
+    
     if (this.stateManager) {
-      const apiResource = newSelection.dataset.apiResource || newSelection.textContent;
-      this.stateManager.setState('selectedApiResource', apiResource);
+      this.stateManager.setState('selectedApiResource', newSelection.textContent);
     }
+    this.header2ValueEl.textContent = newSelection.textContent;
   }
+  
   search() {
     super.search();
     // так как список api ресурсов сгруппирован, названия групп нужно скрывать если в ней ничего не нашлось

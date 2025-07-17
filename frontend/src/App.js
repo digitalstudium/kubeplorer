@@ -155,13 +155,6 @@ class App {
       this.stateManager,
     );
 
-    panel3.apiResourcesPanel = panel2;
-    panel3.namespacesPanel = panel1;
-    panel2.resourcesPanel = panel3;
-    panel2.namespacesPanel = panel1;
-    panel1.resourcesPanel = panel3;
-    panel1.apiResourcesPanel = panel2;
-
     this.panels = [panel1, panel2, panel3];
 
     // Update tab state with new panels

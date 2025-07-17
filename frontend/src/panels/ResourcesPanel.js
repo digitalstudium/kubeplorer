@@ -35,8 +35,6 @@ export class ResourcesPanel extends Panel {
         }
       });
     }
-    this.namespacesPanel = null;
-    this.apiResourcesPanel = null;
     this.currentUpdateAbortController = null;
     this.updateInterval = null;
     this.buttonEl = container.querySelector(".create-resource-btn");
@@ -182,7 +180,6 @@ export class ResourcesPanel extends Panel {
     const apiResource = this.stateManager.getState('selectedApiResource');
     const selectedNamespace = this.stateManager.getState('selectedNamespace');
 
-    this.apiResourcesPanel.header2ValueEl.textContent = apiResource;
     this.header1ValueEl.textContent = apiResource;
     this.updateHeader(apiResource);
 
@@ -268,10 +265,8 @@ export class ResourcesPanel extends Panel {
       this.updateStatistics();
     } catch (error) {
       if (error.name !== "AbortError") {
-        console.error(
-          `Error fetching ${this.apiResourcesPanel.selectedEl.textContent}:`,
-          error,
-        );
+        const apiResource = this.stateManager.getState('selectedApiResource');
+        console.error(`Error fetching ${apiResource || 'resources'}:`, error);
       }
     } finally {
       if (this.currentUpdateAbortController === abortController) {

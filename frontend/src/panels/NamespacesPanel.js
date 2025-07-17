@@ -5,8 +5,6 @@ export class NamespacesPanel extends Panel {
   constructor(name, cluster, container, tab, stateManager = null) {
     super(name, cluster, container, tab);
     this.stateManager = stateManager;
-    this.apiResourcesPanel = null;
-    this.resourcesPanel = null;
   }
 
   select(event) {
