@@ -1,4 +1,5 @@
 import { Utils } from "../utils/Utils.js";
+import { StateManager } from "../core/StateManager.js";
 
 export class TabsManager {
   constructor(app) {
@@ -64,8 +65,7 @@ export class TabsManager {
   createNewTab() {
     const tabsContainer = document.querySelector(".tabs-container");
     const newTabBtn = document.querySelector(".new-tab-btn");
-
-    // Create the new tab
+  
     const newTab = Utils.createEl("tab");
     const tabTitle = document.createElement("span");
     tabTitle.textContent = Utils.translate("Cluster selection");
@@ -73,23 +73,37 @@ export class TabsManager {
     closeBtn.className = "tab-close-btn";
     closeBtn.textContent = "×";
     closeBtn.tabIndex = -1;
-
+  
     newTab.appendChild(tabTitle);
     if (this.tabIdCounter != 0) {
       newTab.appendChild(closeBtn);
     }
-
+  
     tabsContainer.insertBefore(newTab, newTabBtn);
-
-    // Initialize the state for the new tab
+  
+    // Создаем отдельный StateManager для этой вкладки
+    const tabStateManager = new StateManager();
+    
+    // Добавляем логи для этой вкладки
+    tabStateManager.subscribe('selectedCluster', (value) => {
+      console.log(`Tab ${this.tabIdCounter}: Cluster changed to:`, value);
+    });
+    tabStateManager.subscribe('selectedNamespace', (value) => {
+      console.log(`Tab ${this.tabIdCounter}: Namespace changed to:`, value);
+    });
+    tabStateManager.subscribe('selectedApiResource', (value) => {
+      console.log(`Tab ${this.tabIdCounter}: API Resource changed to:`, value);
+    });
+  
+    // Инициализируем состояние таба с его StateManager
     this.tabStates[this.tabIdCounter] = {
       cluster: null,
       panels: [],
+      stateManager: tabStateManager // Добавляем StateManager в состояние таба
     };
-
+  
     newTab.id = this.tabIdCounter;
-
-    // Activate the new tab
+  
     this.createTabContent();
     this.activateTab(newTab);
   }

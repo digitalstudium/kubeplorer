@@ -16,28 +16,18 @@ import yamlWorker from "monaco-yaml/yaml.worker?worker";
 
 class App {
   constructor() {
-    this.stateManager = new StateManager();
-    this.stateManager.subscribe('selectedCluster', (value) => {
-      console.log('StateManager: Cluster changed to:', value);
-    });
-    this.stateManager.subscribe('selectedNamespace', (value) => {
-      console.log('StateManager: Namespace changed to:', value);
-    });
-    this.stateManager.subscribe('selectedApiResource', (value) => {
-      console.log('StateManager: API Resource changed to:', value);
-    });
     this.cluster = null;
     this.panels = [];
     this.clustersScreen = null;
     this.clustersList = null;
     this.mainScreen = null;
-    
+
     // Initialize ClustersManager BEFORE TabsManager
     this.clustersManager = new ClustersManager(this);
-    
+
     // Initialize TabsManager after ClustersManager
     this.tabsManager = new TabsManager(this);
-    
+
     EventsOn("closeTab", () => {
       const activeTab = document.querySelector(".tab.active");
       this.tabsManager.closeTab(activeTab);
@@ -60,6 +50,13 @@ class App {
   onTabActivated(tabState) {
     this.cluster = tabState.cluster;
     this.panels = tabState.panels;
+    // Получаем StateManager из состояния таба
+    this.stateManager = tabState.stateManager;
+    
+    // Синхронизируем состояние с StateManager если есть данные
+    if (tabState.cluster) {
+      this.stateManager.setState('selectedCluster', tabState.cluster);
+    }
   }
 
   setupEventListeners() {
@@ -104,11 +101,11 @@ class App {
   goBackToClusterSelection() {
     this.clearUIState();
     this.cluster = null;
-    
+
     // Update tab state and title
     this.tabsManager.updateCurrentTabState({ cluster: null, panels: [] });
     this.tabsManager.updateActiveTabTitle(Utils.translate("Cluster selection"));
-    
+
     this.clustersScreen.classList.add("active");
     this.clustersScreen.style.display = "flex";
     this.mainScreen.classList.remove("active");
@@ -117,12 +114,14 @@ class App {
 
   selectCluster(cluster) {
     this.cluster = cluster;
-    this.stateManager.setState('selectedCluster', cluster);
+    if (this.stateManager) {
+      this.stateManager.setState('selectedCluster', cluster);
+    }
     this.mainScreen.querySelector(".selectedClusterName").textContent = cluster;
-    
+
     // Update tab title
     this.tabsManager.updateActiveTabTitle(cluster);
-    
+
     this.clustersScreen.classList.remove("active");
     this.clustersScreen.style.display = "none";
     this.mainScreen.classList.add("active");
@@ -139,21 +138,21 @@ class App {
       this.cluster,
       this.mainScreen,
       currentTab,
-      this.stateManager
+      this.stateManager,
     );
     const panel2 = new ApiResourcesPanel(
       "panel2",
       this.cluster,
       this.mainScreen,
       currentTab,
-      this.stateManager
+      this.stateManager,
     );
     const panel3 = new ResourcesPanel(
       "panel3",
       this.cluster,
       this.mainScreen,
       currentTab,
-      this.stateManager
+      this.stateManager,
     );
 
     panel3.apiResourcesPanel = panel2;
@@ -166,9 +165,9 @@ class App {
     this.panels = [panel1, panel2, panel3];
 
     // Update tab state with new panels
-    this.tabsManager.updateCurrentTabState({ 
-      cluster: this.cluster, 
-      panels: this.panels 
+    this.tabsManager.updateCurrentTabState({
+      cluster: this.cluster,
+      panels: this.panels,
     });
 
     // Setup event listeners for each panel
@@ -178,9 +177,22 @@ class App {
 
     Utils.showLoadingIndicator("Loading cluster resources", currentTab);
     try {
-      for (const panel of this.panels) {
-        await panel.update();
+      await panel1.update(); // namespace
+      await panel2.update(); // api resources
+
+      // Устанавливаем начальные значения в StateManager
+      if (panel1.selectedElText) {
+        this.stateManager.setState("selectedNamespace", panel1.selectedElText);
       }
+      if (panel2.selectedElText) {
+        this.stateManager.setState(
+          "selectedApiResource",
+          panel2.selectedElText,
+        );
+      }
+
+      // Теперь обновляем panel3 с правильными значениями
+      await panel3.update();
       this.updateClusterStatus();
       setInterval(() => this.updateClusterStatus(), 10000);
     } catch (error) {
@@ -191,7 +203,10 @@ class App {
   }
 
   async updateClusterStatus() {
-    await this.clustersManager.updateClusterStatus(this.cluster, this.mainScreen);
+    await this.clustersManager.updateClusterStatus(
+      this.cluster,
+      this.mainScreen,
+    );
   }
 }
 

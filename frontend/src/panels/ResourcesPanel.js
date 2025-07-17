@@ -86,16 +86,16 @@ export class ResourcesPanel extends Panel {
       }
       this.deleteBtn.style.display = "none";
       
-      // Было: document.querySelectorAll(".checkboxItem")
-      // Стало: ищем только в текущей вкладке
-      const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
+      const selectedNamespace = this.stateManager.getState('selectedNamespace');
+      const apiResource = this.stateManager.getState('selectedApiResource');
       
+      const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
       for (const checkboxEl of allCheckboxItems) {
         if (checkboxEl.checked) {
           await DeleteResource(
             this.cluster,
-            this.namespacesPanel.selectedEl.textContent,
-            this.apiResourcesPanel.selectedEl.textContent,
+            selectedNamespace,
+            apiResource,
             checkboxEl.nextElementSibling.textContent,
           );
           checkboxEl.checked = false;
@@ -179,8 +179,8 @@ export class ResourcesPanel extends Panel {
   }
 
   async update() {
-    const apiResource = this.apiResourcesPanel.selectedEl.textContent;
-    const selectedNamespace = this.namespacesPanel.selectedEl.textContent;
+    const apiResource = this.stateManager.getState('selectedApiResource');
+    const selectedNamespace = this.stateManager.getState('selectedNamespace');
 
     this.apiResourcesPanel.header2ValueEl.textContent = apiResource;
     this.header1ValueEl.textContent = apiResource;
@@ -228,8 +228,8 @@ export class ResourcesPanel extends Panel {
     const signal = abortController.signal;
 
     try {
-      const selectedNamespace = this.namespacesPanel.selectedEl.textContent;
-      const apiResource = this.apiResourcesPanel.selectedEl.textContent;
+      const selectedNamespace = this.stateManager.getState('selectedNamespace');
+      const apiResource = this.stateManager.getState('selectedApiResource');
 
       // Pass the signal to cancellable operations (e.g., fetch)
       const resources = await GetResourcesInNamespace(
