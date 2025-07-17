@@ -1,14 +1,25 @@
+import { UpdateManager } from "./UpdateManager.js";
+
 export class StateManager {
   constructor() {
     this.state = {
       selectedCluster: null,
       selectedNamespace: null,
-      selectedApiResource: null
+      selectedApiResource: null,
     };
     this.listeners = new Map();
+    this.updateManager = new UpdateManager();
+  }
+
+  getUpdateManager() {
+    return this.updateManager;
   }
 
   setState(key, value) {
+    const oldValue = this.state[key];
+    if (oldValue === value) {
+      return;
+    }
     this.state[key] = value;
     this.notifyListeners(key, value);
   }
@@ -26,7 +37,7 @@ export class StateManager {
 
   notifyListeners(key, value) {
     const callbacks = this.listeners.get(key) || [];
-    callbacks.forEach(callback => {
+    callbacks.forEach((callback) => {
       try {
         callback(value);
       } catch (error) {

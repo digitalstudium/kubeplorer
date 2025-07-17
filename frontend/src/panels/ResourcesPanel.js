@@ -14,22 +14,20 @@ export class ResourcesPanel extends Panel {
   constructor(name, cluster, container, tab, stateManager = null) {
     super(name, cluster, container, tab);
     this.stateManager = stateManager;
-    
+
     // Добавьте подписки на изменения:
     if (this.stateManager) {
-      this.stateManager.subscribe('selectedNamespace', () => {
-        // Проверяем, что это наша вкладка
-        if (this.isActiveTab() && this.stateManager.getState('selectedApiResource')) {
-          this.update(this.cluster);
+      this.stateManager.subscribe("selectedNamespace", () => {
+        if (this.isActiveTab() && this.stateManager.getState("selectedApiResource")) {
+          this.scheduleUpdate();
           this.deleteBtn.style.display = "none";
           this.toggleCheckboxes.checked = false;
         }
       });
       
-      this.stateManager.subscribe('selectedApiResource', () => {
-        // Проверяем, что это наша вкладка
-        if (this.isActiveTab() && this.stateManager.getState('selectedNamespace')) {
-          this.update(this.cluster);
+      this.stateManager.subscribe("selectedApiResource", () => {
+        if (this.isActiveTab() && this.stateManager.getState("selectedNamespace")) {
+          this.scheduleUpdate();
           this.deleteBtn.style.display = "none";
           this.toggleCheckboxes.checked = false;
         }
@@ -48,10 +46,16 @@ export class ResourcesPanel extends Panel {
     this.tab.append(this.deleteBtn);
     this.deleteBtn.dataset.title = Utils.translate("Delete selected");
     this.toggleCheckboxes = this.panelEl.querySelector(".toggleCheckboxes");
+    this.currentPanelId = null;
+  }
+
+  isActiveTab() {
+    return this.tab && this.tab.classList.contains("active");
   }
   
-  isActiveTab() {
-    return this.tab && this.tab.classList.contains('active');
+  scheduleUpdate() {
+    clearTimeout(this.updateTimeout);
+    this.updateTimeout = setTimeout(() => this.update(), 100);
   }
 
   createListHeaders() {
@@ -77,16 +81,16 @@ export class ResourcesPanel extends Panel {
 
   setupEventListeners() {
     super.setupEventListeners();
-    
+
     this.deleteBtn.addEventListener("click", async () => {
       if (!confirm(`Are you sure you want to delete selected resources?`)) {
         return;
       }
       this.deleteBtn.style.display = "none";
-      
-      const selectedNamespace = this.stateManager.getState('selectedNamespace');
-      const apiResource = this.stateManager.getState('selectedApiResource');
-      
+
+      const selectedNamespace = this.stateManager.getState("selectedNamespace");
+      const apiResource = this.stateManager.getState("selectedApiResource");
+
       const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
       for (const checkboxEl of allCheckboxItems) {
         if (checkboxEl.checked) {
@@ -102,12 +106,12 @@ export class ResourcesPanel extends Panel {
       this.toggleCheckboxes.checked = false;
       alert(`Resources deleted successfully.`);
     });
-    
+
     this.toggleCheckboxes.addEventListener("change", (event) => {
       // Было: document.querySelectorAll(".checkboxItem")
       // Стало: ищем только в текущей вкладке
       const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
-      
+
       allCheckboxItems.forEach((checkboxItem) => {
         checkboxItem.checked = event.target.checked;
       });
@@ -126,10 +130,10 @@ export class ResourcesPanel extends Panel {
   }
 
   cleanup() {
-    if (this.updateInterval) {
-      console.log("Clearing interval: ", this.updateInterval);
-      clearInterval(this.updateInterval);
-      this.updateInterval = undefined;
+    if (this.currentPanelId && this.stateManager) {
+      const updateManager = this.stateManager.getUpdateManager();
+      updateManager.unregister(this.currentPanelId);
+      this.currentPanelId = null;
     }
     if (this.currentUpdateAbortController) {
       this.currentUpdateAbortController.abort();
@@ -177,8 +181,10 @@ export class ResourcesPanel extends Panel {
   }
 
   async update() {
-    const apiResource = this.stateManager.getState('selectedApiResource');
-    const selectedNamespace = this.stateManager.getState('selectedNamespace');
+    const apiResource = this.stateManager.getState("selectedApiResource");
+    const selectedNamespace = this.stateManager.getState("selectedNamespace");
+    const panelId = `${this.cluster}-${selectedNamespace}-${apiResource}`;
+    if (this.currentPanelId === panelId) return;
 
     this.header1ValueEl.textContent = apiResource;
     this.updateHeader(apiResource);
@@ -190,11 +196,18 @@ export class ResourcesPanel extends Panel {
     await this.updateHtml();
 
     // Set up the interval to try updating every 1 second
-    this.updateInterval = setInterval(() => {
-      if (!this.isUpdating) {
+    const updateManager = this.stateManager.getUpdateManager();
+
+    updateManager.register(
+      panelId,
+      () => {
         this.updateWithTimeout();
-      }
-    }, 1000);
+      },
+      1000,
+    );
+
+    // Сохраняем panelId для последующей очистки
+    this.currentPanelId = panelId;
   }
 
   updateWithTimeout() {
@@ -225,8 +238,8 @@ export class ResourcesPanel extends Panel {
     const signal = abortController.signal;
 
     try {
-      const selectedNamespace = this.stateManager.getState('selectedNamespace');
-      const apiResource = this.stateManager.getState('selectedApiResource');
+      const selectedNamespace = this.stateManager.getState("selectedNamespace");
+      const apiResource = this.stateManager.getState("selectedApiResource");
 
       // Pass the signal to cancellable operations (e.g., fetch)
       const resources = await GetResourcesInNamespace(
@@ -265,8 +278,8 @@ export class ResourcesPanel extends Panel {
       this.updateStatistics();
     } catch (error) {
       if (error.name !== "AbortError") {
-        const apiResource = this.stateManager.getState('selectedApiResource');
-        console.error(`Error fetching ${apiResource || 'resources'}:`, error);
+        const apiResource = this.stateManager.getState("selectedApiResource");
+        console.error(`Error fetching ${apiResource || "resources"}:`, error);
       }
     } finally {
       if (this.currentUpdateAbortController === abortController) {
@@ -357,11 +370,29 @@ export class ResourcesPanel extends Panel {
   createResource(cluster, namespace, apiResource, resource) {
     switch (apiResource) {
       case "pods":
-        return new PodResource(this.tab, cluster, namespace, apiResource, resource);
+        return new PodResource(
+          this.tab,
+          cluster,
+          namespace,
+          apiResource,
+          resource,
+        );
       case "secrets":
-        return new SecretResource(this.tab, cluster, namespace, apiResource, resource);
+        return new SecretResource(
+          this.tab,
+          cluster,
+          namespace,
+          apiResource,
+          resource,
+        );
       default:
-        return new Resource(this.tab, cluster, namespace, apiResource, resource);
+        return new Resource(
+          this.tab,
+          cluster,
+          namespace,
+          apiResource,
+          resource,
+        );
     }
   }
 
