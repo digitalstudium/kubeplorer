@@ -11,8 +11,30 @@ import { Utils } from "../utils/Utils";
 import { ModalWindow } from "../windows/ModalWindow.js";
 
 export class ResourcesPanel extends Panel {
-  constructor(name, cluster, container, tab) {
+  constructor(name, cluster, container, tab, stateManager = null) {
     super(name, cluster, container, tab);
+    this.stateManager = stateManager;
+    
+    // Добавьте подписки на изменения:
+    if (this.stateManager) {
+      this.stateManager.subscribe('selectedNamespace', () => {
+        // Проверяем, что это наша вкладка
+        if (this.isActiveTab() && this.stateManager.getState('selectedApiResource')) {
+          this.update(this.cluster);
+          this.deleteBtn.style.display = "none";
+          this.toggleCheckboxes.checked = false;
+        }
+      });
+      
+      this.stateManager.subscribe('selectedApiResource', () => {
+        // Проверяем, что это наша вкладка
+        if (this.isActiveTab() && this.stateManager.getState('selectedNamespace')) {
+          this.update(this.cluster);
+          this.deleteBtn.style.display = "none";
+          this.toggleCheckboxes.checked = false;
+        }
+      });
+    }
     this.namespacesPanel = null;
     this.apiResourcesPanel = null;
     this.currentUpdateAbortController = null;
@@ -25,9 +47,13 @@ export class ResourcesPanel extends Panel {
     this.monacoModal = null;
     this.deleteBtn = Utils.createEl("floating-btn", "", "button");
     this.deleteBtn.append(Utils.createIconEl("fa-trash"));
-    document.body.append(this.deleteBtn);
+    this.tab.append(this.deleteBtn);
     this.deleteBtn.dataset.title = Utils.translate("Delete selected");
     this.toggleCheckboxes = this.panelEl.querySelector(".toggleCheckboxes");
+  }
+  
+  isActiveTab() {
+    return this.tab && this.tab.classList.contains('active');
   }
 
   createListHeaders() {
@@ -53,12 +79,17 @@ export class ResourcesPanel extends Panel {
 
   setupEventListeners() {
     super.setupEventListeners();
+    
     this.deleteBtn.addEventListener("click", async () => {
       if (!confirm(`Are you sure you want to delete selected resources?`)) {
         return;
       }
       this.deleteBtn.style.display = "none";
-      const allCheckboxItems = document.querySelectorAll(".checkboxItem");
+      
+      // Было: document.querySelectorAll(".checkboxItem")
+      // Стало: ищем только в текущей вкладке
+      const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
+      
       for (const checkboxEl of allCheckboxItems) {
         if (checkboxEl.checked) {
           await DeleteResource(
@@ -73,8 +104,12 @@ export class ResourcesPanel extends Panel {
       this.toggleCheckboxes.checked = false;
       alert(`Resources deleted successfully.`);
     });
+    
     this.toggleCheckboxes.addEventListener("change", (event) => {
-      const allCheckboxItems = document.querySelectorAll(".checkboxItem");
+      // Было: document.querySelectorAll(".checkboxItem")
+      // Стало: ищем только в текущей вкладке
+      const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
+      
       allCheckboxItems.forEach((checkboxItem) => {
         checkboxItem.checked = event.target.checked;
       });
@@ -86,7 +121,9 @@ export class ResourcesPanel extends Panel {
   clear() {
     super.clear();
     this.listHeadersEl.remove();
-    this.deleteBtn.remove();
+    if (this.deleteBtn && this.deleteBtn.parentNode) {
+      this.deleteBtn.remove();
+    }
     this.cleanup();
   }
 

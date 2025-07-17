@@ -12,8 +12,9 @@ if (storedGroups) {
 }
 
 export class ApiResourcesPanel extends Panel {
-  constructor(name, cluster, container, tab) {
+  constructor(name, cluster, container, tab, stateManager = null) {
     super(name, cluster, container, tab);
+    this.stateManager = stateManager;
     this.namespacesPanel = null;
     this.resourcesPanel = null;
     this.selectedElText = "pods";
@@ -320,9 +321,10 @@ export class ApiResourcesPanel extends Panel {
     if (!newSelection) {
       return;
     }
-    this.resourcesPanel.update(this.cluster);
-    this.resourcesPanel.deleteBtn.style.display = "none";
-    this.resourcesPanel.toggleCheckboxes.checked = false;
+    if (this.stateManager) {
+      const apiResource = newSelection.dataset.apiResource || newSelection.textContent;
+      this.stateManager.setState('selectedApiResource', apiResource);
+    }
   }
   search() {
     super.search();

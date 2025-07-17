@@ -1,6 +1,7 @@
 import { EventsOn, EventsOnce } from "../wailsjs/runtime/runtime.js";
 
 import "./styles/style.css";
+import { StateManager } from "./core/StateManager.js";
 import { TabsManager } from "./managers/TabsManager.js";
 import { ClustersManager } from "./managers/ClustersManager.js";
 import { Utils } from "./utils/Utils.js";
@@ -15,6 +16,16 @@ import yamlWorker from "monaco-yaml/yaml.worker?worker";
 
 class App {
   constructor() {
+    this.stateManager = new StateManager();
+    this.stateManager.subscribe('selectedCluster', (value) => {
+      console.log('StateManager: Cluster changed to:', value);
+    });
+    this.stateManager.subscribe('selectedNamespace', (value) => {
+      console.log('StateManager: Namespace changed to:', value);
+    });
+    this.stateManager.subscribe('selectedApiResource', (value) => {
+      console.log('StateManager: API Resource changed to:', value);
+    });
     this.cluster = null;
     this.panels = [];
     this.clustersScreen = null;
@@ -106,6 +117,7 @@ class App {
 
   selectCluster(cluster) {
     this.cluster = cluster;
+    this.stateManager.setState('selectedCluster', cluster);
     this.mainScreen.querySelector(".selectedClusterName").textContent = cluster;
     
     // Update tab title
@@ -127,18 +139,21 @@ class App {
       this.cluster,
       this.mainScreen,
       currentTab,
+      this.stateManager
     );
     const panel2 = new ApiResourcesPanel(
       "panel2",
       this.cluster,
       this.mainScreen,
       currentTab,
+      this.stateManager
     );
     const panel3 = new ResourcesPanel(
       "panel3",
       this.cluster,
       this.mainScreen,
       currentTab,
+      this.stateManager
     );
 
     panel3.apiResourcesPanel = panel2;

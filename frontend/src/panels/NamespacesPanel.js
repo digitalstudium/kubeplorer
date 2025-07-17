@@ -2,8 +2,9 @@ import { GetNamespaces, GetDefaultNamespace } from "../../wailsjs/go/main/App";
 import { Panel } from "./Panel";
 
 export class NamespacesPanel extends Panel {
-  constructor(name, cluster, container, tab) {
+  constructor(name, cluster, container, tab, stateManager = null) {
     super(name, cluster, container, tab);
+    this.stateManager = stateManager;
     this.apiResourcesPanel = null;
     this.resourcesPanel = null;
   }
@@ -13,10 +14,10 @@ export class NamespacesPanel extends Panel {
     if (!newSelection) {
       return;
     }
+    if (this.stateManager) {
+      this.stateManager.setState('selectedNamespace', newSelection.textContent);
+    }
     this.header2ValueEl.textContent = newSelection.textContent;
-    this.resourcesPanel.update(this.cluster);
-    this.resourcesPanel.deleteBtn.style.display = "none";
-    this.resourcesPanel.toggleCheckboxes.checked = false;
   }
   async update() {
     // Fetch namespaces from the API

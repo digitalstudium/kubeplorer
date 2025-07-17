@@ -122,12 +122,12 @@ export class Resource {
 
   createResourceName() {
     this.checkBoxEl = Utils.createInputEl("checkboxItem", "", "checkbox");
-    const deleteBtn = document.querySelector(".floating-btn");
+    const deleteBtn = this.tab.querySelector(".floating-btn");
     this.checkBoxEl.addEventListener("change", (event) => {
       if (event.target.checked) {
         deleteBtn.style.display = "block";
       } else {
-        const allCheckboxItems = document.querySelectorAll(".checkboxItem");
+        const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
         const anyChecked = Array.from(allCheckboxItems).some((c) => c.checked);
         deleteBtn.style.display = anyChecked ? "block" : "none";
       }
