@@ -12,21 +12,26 @@ import { ModalWindow } from "../windows/ModalWindow.js";
 
 export class ResourcesPanel extends Panel {
   constructor(name, cluster, container, tab, stateManager = null) {
-    super(name, cluster, container, tab);
-    this.stateManager = stateManager;
+    super(name, cluster, container, tab, stateManager);
 
     // Добавьте подписки на изменения:
     if (this.stateManager) {
       this.stateManager.subscribe("selectedNamespace", () => {
-        if (this.isActiveTab() && this.stateManager.getState("selectedApiResource")) {
+        if (
+          this.isActiveTab() &&
+          this.stateManager.getState("selectedApiResource")
+        ) {
           this.scheduleUpdate();
           this.deleteBtn.style.display = "none";
           this.toggleCheckboxes.checked = false;
         }
       });
-      
+
       this.stateManager.subscribe("selectedApiResource", () => {
-        if (this.isActiveTab() && this.stateManager.getState("selectedNamespace")) {
+        if (
+          this.isActiveTab() &&
+          this.stateManager.getState("selectedNamespace")
+        ) {
           this.scheduleUpdate();
           this.deleteBtn.style.display = "none";
           this.toggleCheckboxes.checked = false;
@@ -52,7 +57,7 @@ export class ResourcesPanel extends Panel {
   isActiveTab() {
     return this.tab && this.tab.classList.contains("active");
   }
-  
+
   scheduleUpdate() {
     clearTimeout(this.updateTimeout);
     this.updateTimeout = setTimeout(() => this.update(), 100);

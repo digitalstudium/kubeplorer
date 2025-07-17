@@ -1,10 +1,11 @@
 import { Utils } from "../utils/Utils";
 
 export class Panel {
-  constructor(name, cluster, container, tab) {
+  constructor(name, cluster, container, tab, stateManager = null) {
     this.cluster = cluster;
     this.container = container;
     this.tab = tab;
+    this.stateManager = stateManager;
     this.header1ValueEl = container.querySelector(`.${name} .header1Value`);
     this.header2ValueEl = container.querySelector(`.${name} .header2Value`);
     this.panelEl = container.querySelector(`.${name}`);

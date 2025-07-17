@@ -13,8 +13,7 @@ if (storedGroups) {
 
 export class ApiResourcesPanel extends Panel {
   constructor(name, cluster, container, tab, stateManager = null) {
-    super(name, cluster, container, tab);
-    this.stateManager = stateManager;
+    super(name, cluster, container, tab, stateManager);
     this.selectedElText = "pods";
     this.buttonEl = document.querySelector(".create-group-btn");
     this.buttonFunction = () => this.showCreateGroupModal();
