@@ -183,6 +183,7 @@ class App {
           panel2.selectedElText,
         );
       }
+      panel2.updateFrequentApiResources();
 
       // Теперь обновляем panel3 с правильными значениями
       await panel3.update();

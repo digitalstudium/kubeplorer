@@ -85,6 +85,7 @@ const translations = {
     Events: "События",
     Search: "Поиск",
     UpToDate: "Актуально",
+    "Frequently used:": "Часто используемые:",
     "Cluster selection": "Выбор кластера",
     "No events found": "Событий не найдено",
     "Fetching events": "Получение событий",

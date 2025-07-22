@@ -2,6 +2,7 @@ import { GetApiResources } from "../../wailsjs/go/main/App";
 import { GroupModalWindow } from "../windows/GroupModalWindow";
 import { Panel } from "./Panel";
 import { Utils } from "../utils/Utils";
+import { LRUApiResources } from "../utils/LRUApiResources.js";
 import { defaultApiResourcesGroups } from "../utils/Config";
 
 let currentEditingGroup = null;
@@ -18,6 +19,7 @@ export class ApiResourcesPanel extends Panel {
     this.selectedElText = "pods";
     this.buttonEl = document.querySelector(".create-group-btn");
     this.buttonFunction = () => this.showCreateGroupModal();
+    this.lruApiResources = new LRUApiResources();
   }
   async update() {
     const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
@@ -99,6 +101,7 @@ export class ApiResourcesPanel extends Panel {
     );
     // Save groups after update
     GroupModalWindow.saveGroups(apiResourcesGroups);
+    this.updateFrequentApiResources();
   }
 
   createGroupSection(groupName, apiResources) {
@@ -346,6 +349,10 @@ export class ApiResourcesPanel extends Panel {
       return;
     }
 
+    const selectedApiResource = newSelection.textContent;
+
+    this.addToLRUAndUpdate(selectedApiResource);
+
     if (this.stateManager) {
       this.stateManager.setState(
         "selectedApiResource",
@@ -353,6 +360,108 @@ export class ApiResourcesPanel extends Panel {
       );
     }
     this.header2ValueEl.textContent = newSelection.textContent;
+  }
+
+  addToLRUAndUpdate(apiResource) {
+    // Добавляем в LRU
+    this.lruApiResources.add(apiResource);
+
+    // Обновляем частые ресурсы в UI
+    this.updateFrequentApiResources();
+  }
+
+  updateFrequentApiResources() {
+    const frequentContainer = document.getElementById("frequentApiResources");
+    const frequentItems = document.getElementById("frequentItems");
+
+    if (!frequentContainer || !frequentItems) return;
+
+    const items = this.lruApiResources.getItems();
+
+    if (items.length === 0) {
+      frequentContainer.style.display = "none";
+      return;
+    }
+
+    frequentContainer.style.display = "flex";
+    frequentItems.innerHTML = "";
+
+    items.forEach((apiResource) => {
+      const item = document.createElement("div");
+      item.className = "frequent-item";
+      item.textContent = apiResource;
+
+      // Выделяем текущий выбранный ресурс
+      if (apiResource === this.selectedElText) {
+        item.classList.add("selected");
+      }
+
+      item.addEventListener("click", () => {
+        this.selectApiResourceByName(apiResource, false); // false = не добавлять в LRU
+      });
+
+      frequentItems.appendChild(item);
+    });
+  }
+
+  selectApiResourceByName(apiResourceName, addToLRU = true) {
+    // Находим элемент в списке и выбираем его
+    const items = this.getAllListElements();
+    const targetItem = items.find(
+      (item) => item.textContent === apiResourceName,
+    );
+
+    if (targetItem) {
+      // Снимаем выделение с текущего элемента
+      if (this.selectedEl) {
+        this.selectedEl.classList.remove("selected");
+      }
+
+      // Выделяем новый элемент
+      targetItem.classList.add("selected");
+      this.selectedEl = targetItem;
+      this.selectedElText = apiResourceName;
+
+      // Добавляем в LRU только если это требуется
+      if (addToLRU) {
+        this.addToLRUAndUpdate(apiResourceName);
+      } else {
+        // Просто обновляем UI без изменения порядка в LRU
+        this.updateFrequentApiResources();
+      }
+
+      // Обновляем StateManager
+      if (this.stateManager) {
+        this.stateManager.setState("selectedApiResource", apiResourceName);
+      }
+
+      this.header2ValueEl.textContent = apiResourceName;
+
+      // Разворачиваем группу если ресурс свернут
+      this.expandGroupForResource(apiResourceName);
+    }
+  }
+
+  expandGroupForResource(apiResourceName) {
+    // Находим группу, содержащую этот ресурс
+    const groupSections = this.listEl.querySelectorAll(".group-section");
+
+    groupSections.forEach((section) => {
+      const items = section.querySelectorAll(`.${this.listItemClass}`);
+      const hasResource = Array.from(items).some(
+        (item) => item.textContent === apiResourceName,
+      );
+
+      if (hasResource) {
+        const header = section.querySelector(".group-header");
+        const content = section.querySelector(".group-content");
+
+        if (header && content) {
+          header.classList.remove("collapsed");
+          content.classList.remove("collapsed");
+        }
+      }
+    });
   }
 
   search() {

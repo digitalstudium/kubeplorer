@@ -11,10 +11,14 @@
     </div>
     <template>
       <div class="tab-content">
-        <div id="loadingIndicator" class="loading-indicator" style="display: none">
-            <div class="loading-spinner"></div>
-            <div class="loading-message"></div>
-        </div>          
+        <div
+          id="loadingIndicator"
+          class="loading-indicator"
+          style="display: none"
+        >
+          <div class="loading-spinner"></div>
+          <div class="loading-message"></div>
+        </div>
         <div id="clusterScreen" class="clusterScreen active">
           <div class="clusterPanel">
             <div class="header1Container">
@@ -30,6 +34,18 @@
               <i class="fas fa-arrow-left"></i>
               <span data-translate="Back to cluster selection"></span>
             </button>
+            <div
+              class="frequent-api-resources"
+              id="frequentApiResources"
+              style="display: none"
+            >
+              <div
+                class="frequent-label"
+                data-translate="Frequently used:"
+              ></div>
+              <div class="frequent-items" id="frequentItems"></div>
+            </div>
+
             <div class="clusterInfo">
               <div class="panelTitle" data-translate="Current cluster: "></div>
               <div class="selectedClusterName"></div>

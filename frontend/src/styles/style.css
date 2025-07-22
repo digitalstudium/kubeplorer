@@ -1107,3 +1107,44 @@ body {
 .new-tab-btn:hover {
   background-color: #404040;
 }
+
+.frequent-api-resources {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px;
+}
+
+.frequent-label {
+  font-size: 14px;
+  color: #888;
+  white-space: nowrap;
+}
+
+.frequent-items {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.frequent-item {
+  background: #2d3748;
+  color: #e2e8f0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid #4a5568;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.frequent-item:hover {
+  background: #4a5568;
+  border-color: #718096;
+}
+
+.frequent-item.selected {
+  background: #3182ce;
+  border-color: #2c5aa0;
+}
