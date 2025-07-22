@@ -92,26 +92,11 @@ export class ApiResourcesPanel extends Panel {
       this.searchBoxEl.value = searchValue;
       this.search();
     }
-    if (this.stateManager) {
-      const updateManager = this.stateManager.getUpdateManager();
-      const panelId = `apiresources-${this.cluster}`;
-
-      if (this.currentPanelId !== panelId) {
-        if (this.currentPanelId) {
-          updateManager.unregister(this.currentPanelId);
-        }
-
-        updateManager.register(
-          panelId,
-          () => {
-            this.update();
-          },
-          10000,
-        ); // Обновляем каждые 10 секунд (API ресурсы меняются реже)
-
-        this.currentPanelId = panelId;
-      }
-    }
+    this.registerForUpdates(
+      `apiresources-${this.cluster}`,
+      () => this.update(),
+      10000,
+    );
     // Save groups after update
     GroupModalWindow.saveGroups(apiResourcesGroups);
   }
@@ -391,14 +376,6 @@ export class ApiResourcesPanel extends Panel {
         group.querySelector(".group-content").classList.add("collapsed");
       }
     });
-  }
-
-  cleanup() {
-    if (this.currentPanelId && this.stateManager) {
-      const updateManager = this.stateManager.getUpdateManager();
-      updateManager.unregister(this.currentPanelId);
-      this.currentPanelId = null;
-    }
   }
 
   clear() {

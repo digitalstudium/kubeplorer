@@ -6,6 +6,7 @@ export class Panel {
     this.container = container;
     this.tab = tab;
     this.stateManager = stateManager;
+    this.currentPanelId = null;
     this.header1ValueEl = container.querySelector(`.${name} .header1Value`);
     this.header2ValueEl = container.querySelector(`.${name} .header2Value`);
     this.panelEl = container.querySelector(`.${name}`);
@@ -63,6 +64,31 @@ export class Panel {
     this.selectedEl = newSelectedElement;
     this.selectedElText = newSelectedElement.textContent;
     return newSelectedElement;
+  }
+
+  registerForUpdates(panelId, updateCallback, intervalMs) {
+    if (this.stateManager) {
+      const updateManager = this.stateManager.getUpdateManager();
+
+      if (this.currentPanelId !== panelId) {
+        if (this.currentPanelId) {
+          updateManager.unregister(this.currentPanelId);
+        }
+        updateManager.register(panelId, updateCallback, intervalMs);
+        this.currentPanelId = panelId;
+      }
+    }
+  }
+
+  cleanup() {
+    if (this.currentPanelId && this.stateManager) {
+      const updateManager = this.stateManager.getUpdateManager();
+      updateManager.unregister(this.currentPanelId);
+      this.currentPanelId = null;
+    }
+    if (this.currentUpdateAbortController) {
+      this.currentUpdateAbortController.abort();
+    }
   }
 
   clear() {

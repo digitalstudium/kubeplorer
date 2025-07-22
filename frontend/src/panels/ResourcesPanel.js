@@ -143,17 +143,6 @@ export class ResourcesPanel extends Panel {
     this.cleanup();
   }
 
-  cleanup() {
-    if (this.currentPanelId && this.stateManager) {
-      const updateManager = this.stateManager.getUpdateManager();
-      updateManager.unregister(this.currentPanelId);
-      this.currentPanelId = null;
-    }
-    if (this.currentUpdateAbortController) {
-      this.currentUpdateAbortController.abort();
-    }
-  }
-
   showCreateResourceModal() {
     const modalContent = `<div class="editor"></div>`;
     new ModalWindow(
@@ -210,15 +199,7 @@ export class ResourcesPanel extends Panel {
     await this.updateHtml();
 
     // Set up the interval to try updating every 1 second
-    const updateManager = this.stateManager.getUpdateManager();
-
-    updateManager.register(
-      panelId,
-      () => {
-        this.updateWithTimeout();
-      },
-      1000,
-    );
+    this.registerForUpdates(panelId, () => this.updateWithTimeout(), 1000);
 
     // Сохраняем panelId для последующей очистки
     this.currentPanelId = panelId;
