@@ -7,6 +7,7 @@ import {
 import { ForwardToOllama } from "../../wailsjs/go/main/OllamaProxy.js";
 
 import { Utils } from "../utils/Utils.js";
+import { RESOURCE_COLUMNS } from "../utils/Config.js";
 import { Prompts } from "../utils/Prompts.js"; // Add this import
 import { ModalWindow } from "../windows/ModalWindow.js";
 
@@ -154,32 +155,25 @@ export class Resource {
   }
 
   createOptionalColumns() {
-    const optionalColumns = {
-      pods: ["readyStatus", "status", "restarts"],
-      deployments: ["ready", "upToDate", "available"],
-    };
-    // console.log(this.resource);
-    if (optionalColumns[this.apiResource]) {
-      optionalColumns[this.apiResource].forEach((key) => {
-        const column = Utils.createEl(`resource-${key}`, this.resource[key]);
-        column.dataset[key] = this.resource[key];
-        this.optionalColumnsEl.append(column);
-      });
-    }
-    // pick information directly from spec
-    const regularOptColumns = {
-      services: ["type", "clusterIP", "loadBalancerIP"],
-    };
-    if (regularOptColumns[this.apiResource]) {
-      regularOptColumns[this.apiResource].forEach((key) => {
-        const column = Utils.createEl(
-          `resource-${key}`,
-          this.resource.spec[key],
-        );
-        column.dataset[key] = this.resource.spec[key];
-        this.optionalColumnsEl.append(column);
-      });
-    }
+    const columns = RESOURCE_COLUMNS[this.apiResource] || [];
+
+    columns.forEach((column) => {
+      let value;
+      if (this.resource[column.key] !== undefined) {
+        value = this.resource[column.key];
+      } else if (
+        this.resource.spec &&
+        this.resource.spec[column.key] !== undefined
+      ) {
+        value = this.resource.spec[column.key];
+      } else {
+        value = ""; // Значение по умолчанию
+      }
+
+      const columnEl = Utils.createEl(`resource-${column.key}`, value);
+      columnEl.dataset[column.key] = value;
+      this.optionalColumnsEl.append(columnEl);
+    });
   }
 
   createAgeAndActions() {

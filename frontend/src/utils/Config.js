@@ -141,4 +141,22 @@ const icons = {
   "Istio registryz": "fa-globe",
 };
 
-export { Config, translations, defaultApiResourcesGroups, icons };
+const RESOURCE_COLUMNS = {
+  pods: [
+    { key: "readyStatus", title: "Ready" },
+    { key: "status", title: "Status" },
+    { key: "restarts", title: "Restarts" }
+  ],
+  deployments: [
+    { key: "ready", title: "Ready" },
+    { key: "upToDate", title: "UpToDate" },
+    { key: "available", title: "Available" }
+  ],
+  services: [
+    { key: "type", title: "Type" },
+    { key: "clusterIP", title: "ClusterIP" },
+    { key: "loadBalancerIP", title: "LoadBalancerIP" }
+  ]
+};
+
+export { Config, translations, defaultApiResourcesGroups, icons, RESOURCE_COLUMNS };

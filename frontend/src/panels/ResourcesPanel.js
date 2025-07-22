@@ -8,6 +8,7 @@ import { PodResource } from "../resources/PodResource";
 import { Resource } from "../resources/Resource";
 import { Panel } from "./Panel";
 import { Utils } from "../utils/Utils";
+import { RESOURCE_COLUMNS } from "../utils/Config.js";
 import { ModalWindow } from "../windows/ModalWindow.js";
 
 export class ResourcesPanel extends Panel {
@@ -426,21 +427,14 @@ export class ResourcesPanel extends Panel {
   updateHeader(apiResource) {
     this.optColumns.innerHTML = ""; // Clear existing columns
 
-    // Define columns based on resource type
-    const columns = {
-      pods: ["Ready", "Status", "Restarts"],
-      services: ["Type", "clusterIP", "loadBalancerIP"],
-      deployments: ["Ready", "UpToDate", "Available"],
-    };
+    const columns = RESOURCE_COLUMNS[apiResource] || [];
 
-    const columnTitles = columns[apiResource] || [];
-
-    columnTitles.forEach((title) => {
-      const column = Utils.createEl(
-        title.toLowerCase().replace(/\s+/g, "-"),
-        Utils.translate(title),
+    columns.forEach((column) => {
+      const columnEl = Utils.createEl(
+        column.key.toLowerCase().replace(/([A-Z])/g, "-$1"),
+        Utils.translate(column.title),
       );
-      this.optColumns.appendChild(column);
+      this.optColumns.appendChild(columnEl);
     });
   }
 }

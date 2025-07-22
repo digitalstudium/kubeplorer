@@ -541,7 +541,6 @@ select:focus,
 }
 
 .resource-ready {
-  width: 25%;
   margin-right: auto;
   white-space: nowrap;
 }
@@ -762,7 +761,8 @@ pre {
 }
 
 .resourceItemHeader .restarts,
-.resourceItemHeader .ready {
+.resourceItemHeader .ready,
+.resourceItemHeader .readystatus {
   width: 25%;
   margin-right: auto;
   white-space: nowrap;
