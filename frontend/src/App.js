@@ -16,7 +16,6 @@ import yamlWorker from "monaco-yaml/yaml.worker?worker";
 
 class App {
   constructor() {
-    this.cluster = null;
     this.panels = [];
     this.clustersScreen = null;
     this.clustersList = null;
@@ -50,7 +49,6 @@ class App {
 
   // Callback method called by TabsManager when a tab is activated
   onTabActivated(tabState) {
-    this.cluster = tabState.cluster;
     this.panels = tabState.panels;
     // Получаем StateManager из состояния таба
     this.stateManager = tabState.stateManager;
@@ -102,7 +100,6 @@ class App {
 
   goBackToClusterSelection() {
     this.clearUIState();
-    this.cluster = null;
 
     // Update tab state and title
     this.tabsManager.updateCurrentTabState({ cluster: null, panels: [] });
@@ -115,7 +112,6 @@ class App {
   }
 
   selectCluster(cluster) {
-    this.cluster = cluster;
     if (this.stateManager) {
       this.stateManager.setState('selectedCluster', cluster);
     }
@@ -133,25 +129,23 @@ class App {
 
   async initializeMainScreen() {
     const currentTab = document.querySelector(".tab-content.active");
-    document.title = `Kubeplorer - ${this.cluster}`;
+    const cluster = this.stateManager.getState('selectedCluster');
+    document.title = `Kubeplorer - ${cluster}`;
 
     const panel1 = new NamespacesPanel(
       "panel1",
-      this.cluster,
       this.mainScreen,
       currentTab,
       this.stateManager,
     );
     const panel2 = new ApiResourcesPanel(
       "panel2",
-      this.cluster,
       this.mainScreen,
       currentTab,
       this.stateManager,
     );
     const panel3 = new ResourcesPanel(
       "panel3",
-      this.cluster,
       this.mainScreen,
       currentTab,
       this.stateManager,
@@ -161,7 +155,7 @@ class App {
 
     // Update tab state with new panels
     this.tabsManager.updateCurrentTabState({
-      cluster: this.cluster,
+      cluster: this.stateManager.getState('selectedCluster'),
       panels: this.panels,
     });
 
@@ -199,8 +193,9 @@ class App {
   }
 
   async updateClusterStatus() {
+    const cluster = this.stateManager.getState('selectedCluster');
     await this.clustersManager.updateClusterStatus(
-      this.cluster,
+      cluster,
       this.mainScreen,
     );
   }

@@ -13,8 +13,8 @@ if (storedGroups) {
 }
 
 export class ApiResourcesPanel extends Panel {
-  constructor(name, cluster, container, tab, stateManager = null) {
-    super(name, cluster, container, tab, stateManager);
+  constructor(name, container, tab, stateManager = null) {
+    super(name, container, tab, stateManager);
     this.currentPanelId = null;
     this.selectedElText = "pods";
     this.buttonEl = document.querySelector(".create-group-btn");
@@ -23,10 +23,11 @@ export class ApiResourcesPanel extends Panel {
   }
   async update() {
     const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
+    const cluster = this.stateManager.getState('selectedCluster');
     // Fetch resource apiResources from the API
     let apiResourcesMap = {};
     try {
-      apiResourcesMap = await GetApiResources(this.cluster);
+      apiResourcesMap = await GetApiResources(cluster);
     } catch (error) {
       console.warn("Cannot load api resources:", error);
     }
@@ -47,7 +48,7 @@ export class ApiResourcesPanel extends Panel {
     if (this.arraysEqual(currentApiResources.sort(), allApiResources.sort())) {
       // Данные не изменились, только регистрируем обновления и выходим
       this.registerForUpdates(
-        `apiresources-${this.cluster}`,
+        `apiresources-${cluster}`,
         () => this.update(),
         10000,
       );
@@ -106,7 +107,7 @@ export class ApiResourcesPanel extends Panel {
       this.search();
     }
     this.registerForUpdates(
-      `apiresources-${this.cluster}`,
+      `apiresources-${cluster}`,
       () => this.update(),
       10000,
     );

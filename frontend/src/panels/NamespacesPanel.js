@@ -2,8 +2,8 @@ import { GetNamespaces, GetDefaultNamespace } from "../../wailsjs/go/main/App";
 import { Panel } from "./Panel";
 
 export class NamespacesPanel extends Panel {
-  constructor(name, cluster, container, tab, stateManager = null) {
-    super(name, cluster, container, tab, stateManager);
+  constructor(name, container, tab, stateManager = null) {
+    super(name, container, tab, stateManager);
     this.currentPanelId = null;
   }
 
@@ -23,7 +23,8 @@ export class NamespacesPanel extends Panel {
       ? this.stateManager.getState("selectedNamespace")
       : this.selectedElText;
     // Fetch namespaces from the API
-    const namespaces = await GetNamespaces(this.cluster);
+    const cluster = this.stateManager.getState('selectedCluster');
+    const namespaces = await GetNamespaces(cluster);
 
     if (!Array.isArray(namespaces) && !(namespaces.length > 0)) {
       console.error("Invalid namespaces response:", namespaces);
@@ -33,7 +34,7 @@ export class NamespacesPanel extends Panel {
 
     let selectedNamespace = currentSelection;
     if (!selectedNamespace || !namespaces.includes(selectedNamespace)) {
-      selectedNamespace = await GetDefaultNamespace(this.cluster);
+      selectedNamespace = await GetDefaultNamespace(cluster);
 
       // Обновляем StateManager если выбор изменился:
       if (this.stateManager && selectedNamespace !== currentSelection) {
@@ -57,7 +58,7 @@ export class NamespacesPanel extends Panel {
       this.search();
     }
     this.registerForUpdates(
-      `namespaces-${this.cluster}`,
+      `namespaces-${cluster}`,
       () => this.update(),
       5000,
     );

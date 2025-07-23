@@ -12,8 +12,8 @@ import { RESOURCE_COLUMNS } from "../utils/Config.js";
 import { ModalWindow } from "../windows/ModalWindow.js";
 
 export class ResourcesPanel extends Panel {
-  constructor(name, cluster, container, tab, stateManager = null) {
-    super(name, cluster, container, tab, stateManager);
+  constructor(name, container, tab, stateManager = null) {
+    super(name, container, tab, stateManager);
 
     // Добавьте подписки на изменения:
     if (this.stateManager) {
@@ -100,12 +100,13 @@ export class ResourcesPanel extends Panel {
 
       const selectedNamespace = this.stateManager.getState("selectedNamespace");
       const apiResource = this.stateManager.getState("selectedApiResource");
+      const cluster = this.stateManager.getState("selectedCluster");
 
       const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
       for (const checkboxEl of allCheckboxItems) {
         if (checkboxEl.checked) {
           await DeleteResource(
-            this.cluster,
+            cluster,
             selectedNamespace,
             apiResource,
             checkboxEl.nextElementSibling.textContent,
@@ -145,6 +146,7 @@ export class ResourcesPanel extends Panel {
   }
 
   showCreateResourceModal() {
+    const cluster = this.stateManager.getState("selectedCluster");
     const modalContent = `<div class="editor"></div>`;
     new ModalWindow(
       this.tab,
@@ -154,7 +156,7 @@ export class ResourcesPanel extends Panel {
         " (" +
         Utils.translate("cluster") +
         " " +
-        this.cluster +
+        cluster +
         ")",
       Utils.translate("Create resource"),
       () => this.createNewResource(),
@@ -175,8 +177,9 @@ export class ResourcesPanel extends Panel {
 
   async createNewResource() {
     try {
+      const cluster = this.stateManager.getState("selectedCluster");
       const yamlContent = this.monacoModal.getValue(); // Get content from Monaco
-      await ApplyResource(this.cluster, yamlContent);
+      await ApplyResource(cluster, yamlContent);
       alert(`Resource created successfully.`);
     } catch (error) {
       console.error(`Failed to create resource:`, error);
@@ -187,7 +190,12 @@ export class ResourcesPanel extends Panel {
   async update() {
     const apiResource = this.stateManager.getState("selectedApiResource");
     const selectedNamespace = this.stateManager.getState("selectedNamespace");
-    const panelId = `${this.cluster}-${selectedNamespace}-${apiResource}`;
+    const cluster = this.stateManager.getState("selectedCluster");
+    if (!cluster) {
+      console.log("No cluster selected, skipping update");
+      return;
+    }
+    const panelId = `${cluster}-${selectedNamespace}-${apiResource}`;
     if (this.currentPanelId === panelId) return;
 
     this.header1ValueEl.textContent = apiResource;
@@ -236,10 +244,16 @@ export class ResourcesPanel extends Panel {
     try {
       const selectedNamespace = this.stateManager.getState("selectedNamespace");
       const apiResource = this.stateManager.getState("selectedApiResource");
+      const cluster = this.stateManager.getState("selectedCluster"); // добавляем эту строку
+
+      if (!cluster) {
+        console.log("No cluster in updateHtml, aborting");
+        return;
+      }
 
       // Pass the signal to cancellable operations (e.g., fetch)
       const resources = await GetResourcesInNamespace(
-        this.cluster,
+        cluster,
         apiResource,
         selectedNamespace,
       );
@@ -261,7 +275,6 @@ export class ResourcesPanel extends Panel {
       this.checkAbort(signal);
 
       this.processResources(
-        this.cluster,
         selectedNamespace,
         apiResource,
         resources,
@@ -307,14 +320,7 @@ export class ResourcesPanel extends Panel {
     toRemove.forEach((item) => item.remove());
   }
 
-  processResources(
-    cluster,
-    namespace,
-    apiResource,
-    resources,
-    existingItems,
-    signal,
-  ) {
+  processResources(namespace, apiResource, resources, existingItems, signal) {
     for (const resource of resources) {
       this.checkAbort(signal);
 
@@ -325,7 +331,7 @@ export class ResourcesPanel extends Panel {
       if (existingItem) {
         this.updateExistingResource(existingItem, resource, apiResource);
       } else {
-        this.addNewResource(cluster, namespace, apiResource, resource);
+        this.addNewResource(namespace, apiResource, resource);
       }
     }
   }
@@ -352,18 +358,14 @@ export class ResourcesPanel extends Panel {
     }
   }
 
-  addNewResource(cluster, namespace, apiResource, resource) {
-    const newItem = this.createResource(
-      cluster,
-      namespace,
-      apiResource,
-      resource,
-    );
+  addNewResource(namespace, apiResource, resource) {
+    const newItem = this.createResource(namespace, apiResource, resource);
     newItem.fill();
     this.listEl.prepend(newItem.htmlEl);
   }
 
-  createResource(cluster, namespace, apiResource, resource) {
+  createResource(namespace, apiResource, resource) {
+    const cluster = this.stateManager.getState("selectedCluster");
     switch (apiResource) {
       case "pods":
         return new PodResource(

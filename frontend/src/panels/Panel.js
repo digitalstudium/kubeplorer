@@ -1,8 +1,7 @@
 import { Utils } from "../utils/Utils";
 
 export class Panel {
-  constructor(name, cluster, container, tab, stateManager = null) {
-    this.cluster = cluster;
+  constructor(name, container, tab, stateManager = null) {
     this.container = container;
     this.tab = tab;
     this.stateManager = stateManager;
