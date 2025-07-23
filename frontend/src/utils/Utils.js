@@ -15,6 +15,14 @@ export class Utils {
 
     return monaco.editor.create(container, monacoOptions);
   }
+
+  static debounce(func, delay) {
+    let timeoutId;
+    return function (...args) {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func.apply(this, args), delay);
+    };
+  }
   // Function to copy text to the clipboard
   static copy(event, text) {
     navigator.clipboard

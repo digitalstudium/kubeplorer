@@ -24,6 +24,7 @@ export class Panel {
     this.selectedEl = null; // must be assigned after populating list
     this.buttonEl = null;
     this.buttonFunction = null;
+    this.debouncedSearch = Utils.debounce(() => this.search(), 300);
   }
 
   getAllListElements() {
@@ -32,7 +33,7 @@ export class Panel {
 
   setupEventListeners() {
     // input handler
-    this.searchBoxEl.addEventListener("input", () => this.search());
+    this.searchBoxEl.addEventListener("input", () => this.debouncedSearch());
     // Utility function to clear the search box and trigger search
     const clearAndSearch = () => {
       this.searchBoxEl.value = "";
