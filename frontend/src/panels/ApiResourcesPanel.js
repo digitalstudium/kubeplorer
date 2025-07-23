@@ -43,6 +43,17 @@ export class ApiResourcesPanel extends Panel {
     // Convert the Set to an array
     allApiResources = Array.from(allApiResources);
 
+    const currentApiResources = this.getAllCurrentApiResources();
+    if (this.arraysEqual(currentApiResources.sort(), allApiResources.sort())) {
+      // Данные не изменились, только регистрируем обновления и выходим
+      this.registerForUpdates(
+        `apiresources-${this.cluster}`,
+        () => this.update(),
+        10000,
+      );
+      return;
+    }
+
     // Проверяем, что текущий выбор все еще существует:
     const currentApiResource = this.stateManager
       ? this.stateManager.getState("selectedApiResource")
@@ -102,6 +113,17 @@ export class ApiResourcesPanel extends Panel {
     // Save groups after update
     GroupModalWindow.saveGroups(apiResourcesGroups);
     this.updateFrequentApiResources();
+  }
+
+  // Получает все текущие API ресурсы из DOM
+  getAllCurrentApiResources() {
+    const items = this.getAllListElements();
+    return items.map((item) => item.textContent);
+  }
+
+  // Сравнивает два массива
+  arraysEqual(a, b) {
+    return a.length === b.length && a.every((val, i) => val === b[i]);
   }
 
   createGroupSection(groupName, apiResources) {
