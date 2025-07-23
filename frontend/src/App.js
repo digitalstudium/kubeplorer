@@ -1,7 +1,7 @@
 import { EventsOn, EventsOnce } from "../wailsjs/runtime/runtime.js";
 
 import "./styles/style.css";
-import { StateManager } from "./core/StateManager.js";
+import { HotkeysManager } from "./core/HotkeysManager.js";
 import { TabsManager } from "./managers/TabsManager.js";
 import { ClustersManager } from "./managers/ClustersManager.js";
 import { Utils } from "./utils/Utils.js";
@@ -27,6 +27,8 @@ class App {
 
     // Initialize TabsManager after ClustersManager
     this.tabsManager = new TabsManager(this);
+    
+    this.hotkeysManager = new HotkeysManager(this);
 
     EventsOn("closeTab", () => {
       const activeTab = document.querySelector(".tab.active");
