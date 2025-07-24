@@ -7,6 +7,15 @@ export class NamespacesPanel extends Panel {
     this.currentPanelId = null;
   }
 
+  scrollToSelected() {
+    if (this.selectedEl) {
+      this.selectedEl.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }
+
   select(event) {
     const newSelection = super.select(event);
     if (!newSelection) {
@@ -23,7 +32,7 @@ export class NamespacesPanel extends Panel {
       ? this.stateManager.getState("selectedNamespace")
       : this.selectedElText;
     // Fetch namespaces from the API
-    const cluster = this.stateManager.getState('selectedCluster');
+    const cluster = this.stateManager.getState("selectedCluster");
     const namespaces = await GetNamespaces(cluster);
 
     if (!Array.isArray(namespaces) && !(namespaces.length > 0)) {
@@ -57,11 +66,7 @@ export class NamespacesPanel extends Panel {
       this.searchBoxEl.value = searchValue;
       this.search();
     }
-    this.registerForUpdates(
-      `namespaces-${cluster}`,
-      () => this.update(),
-      5000,
-    );
+    this.registerForUpdates(`namespaces-${cluster}`, () => this.update(), 5000);
   }
 
   clear() {

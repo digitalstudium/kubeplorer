@@ -346,7 +346,7 @@ button:hover {
   width: 100%;
   height: 100%;
   background-color: rgba(0, 0, 0, 0.7);
-  z-index: 3;
+  z-index: 1000;
 }
 
 .modal-content {
@@ -1053,7 +1053,7 @@ h3 {
 
 /* Add padding to the body to account for the fixed tab bar */
 body {
-  padding-top: 40px; /* Adjust this value based on the actual height of your tab bar */
+  padding-top: 96px; /* Adjust this value based on the actual height of your tab bar */
 }
 
 .tab {
@@ -1147,4 +1147,71 @@ body {
 .frequent-item.selected {
   background: #3182ce;
   border-color: #2c5aa0;
+}
+
+.bookmarks-panel {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  border-bottom: 1px solid #404040;
+  padding: 6px 15px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  white-space: nowrap;
+  width: 100%;
+  position: fixed;
+  top: 50px;
+  left: 0;
+  z-index: 500;
+  height: 36px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 10px; /* Добавляем зазор снизу */
+}
+
+.bookmarks-panel .bookmark-item {
+  background: linear-gradient(135deg, #3a3a3a 0%, #4a4a4a 100%);
+  color: #e0e0e0;
+  border: 1px solid #555;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.bookmarks-panel .bookmark-item:hover {
+  background: linear-gradient(135deg, #4a5568 0%, #5a6578 100%);
+  border-color: #6a7588;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.bookmarks-panel .bookmark-label {
+  color: #999;
+  font-size: 11px;
+  font-weight: 500;
+  margin-right: 12px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bookmark-delete {
+  background: transparent;
+  color: #666;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: -1px;
+  transition: all 0.2s ease;
+  font-weight: bold;
+}
+
+.bookmark-delete:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
 }
