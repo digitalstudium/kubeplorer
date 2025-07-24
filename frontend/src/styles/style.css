@@ -86,11 +86,11 @@ body,
 }
 
 .panel1 {
-  flex: 2;
+  flex: 3;
 }
 
 .panel2 {
-  flex: 3;
+  flex: 4;
 }
 
 .clusterInfo {
@@ -208,6 +208,10 @@ body,
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 8px 12px 4px rgba(0, 0, 0, 0.2);
+  width: 500px; /* Фиксированная ширина */
+  height: 500px; /* Фиксированная высота */
+  display: flex;
+  flex-direction: column;
 }
 
 /* Buttons */
@@ -1214,4 +1218,27 @@ body {
 .bookmark-delete:hover {
   color: #ff6b6b;
   background: rgba(255, 107, 107, 0.1);
+}
+
+
+
+.clusterList {
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 10px;
+  flex: 1; /* Занимает оставшееся место */
+}
+
+.clusterPanel .search-wrapper {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.cluster-search {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.panel3 .list {
+  max-height: 300px !important;
 }

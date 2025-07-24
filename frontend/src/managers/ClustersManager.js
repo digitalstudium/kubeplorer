@@ -1,10 +1,53 @@
-import { GetClusters, TestClusterConnectivity } from "../../wailsjs/go/main/App.js";
+import {
+  GetClusters,
+  TestClusterConnectivity,
+} from "../../wailsjs/go/main/App.js";
 import { Utils } from "../utils/Utils.js";
 
 export class ClustersManager {
   constructor(app) {
     this.app = app;
     this._updateInterval = null;
+  }
+
+  setupClusterSearch() {
+    const searchInput = document.querySelector(".cluster-search");
+    const clearBtn = document.querySelector(".clusterScreen .search-clear");
+
+    if (!searchInput || !clearBtn) return;
+
+    // Debounced поиск
+    const debouncedSearch = Utils.debounce(() => this.searchClusters(), 300);
+
+    searchInput.addEventListener("input", () => {
+      clearBtn.style.display = searchInput.value ? "block" : "none";
+      debouncedSearch();
+    });
+
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      clearBtn.style.display = "none";
+      this.searchClusters();
+    });
+
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        searchInput.value = "";
+        clearBtn.style.display = "none";
+        this.searchClusters();
+      }
+    });
+  }
+
+  searchClusters() {
+    const searchValue =
+      document.querySelector(".cluster-search")?.value.toLowerCase() || "";
+    const clusterItems = document.querySelectorAll(".cluster-item");
+
+    clusterItems.forEach((item) => {
+      const clusterName = item.textContent.toLowerCase();
+      item.style.display = clusterName.includes(searchValue) ? "flex" : "none";
+    });
   }
 
   async updateClustersList(clustersList) {
@@ -24,7 +67,8 @@ export class ClustersManager {
       }
 
       // Compare with existing clusters
-      const currentClusterItems = clustersList.querySelectorAll(".cluster-item");
+      const currentClusterItems =
+        clustersList.querySelectorAll(".cluster-item");
       const currentClusterNames = Array.from(currentClusterItems).map((item) =>
         item.id.replace("cluster-", ""),
       );
@@ -46,7 +90,10 @@ export class ClustersManager {
       }
 
       // Check connectivity and update statuses
-      const statusChanges = await this.checkConnectivityWithChanges(newClusters);
+      const statusChanges =
+        await this.checkConnectivityWithChanges(newClusters);
+      
+      this.setupClusterSearch();
 
       // Schedule next update
       if (!this._updateInterval) {
@@ -75,7 +122,9 @@ export class ClustersManager {
       async ([clusterName]) => {
         const isConnected = await TestClusterConnectivity(clusterName);
         const statusElement = document.getElementById(`status-${clusterName}`);
-        const clusterElement = document.getElementById(`cluster-${clusterName}`);
+        const clusterElement = document.getElementById(
+          `cluster-${clusterName}`,
+        );
 
         if (statusElement) {
           const newStatusClass = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
@@ -88,7 +137,8 @@ export class ClustersManager {
 
         if (clusterElement) {
           const shouldBeDisabled = !isConnected;
-          const isCurrentlyDisabled = clusterElement.classList.contains("disabled");
+          const isCurrentlyDisabled =
+            clusterElement.classList.contains("disabled");
 
           if (shouldBeDisabled !== isCurrentlyDisabled) {
             clusterElement.classList.toggle("disabled", shouldBeDisabled);
@@ -130,7 +180,9 @@ export class ClustersManager {
       async ([clusterName]) => {
         const isConnected = await TestClusterConnectivity(clusterName);
         const statusElement = document.getElementById(`status-${clusterName}`);
-        const clusterElement = document.getElementById(`cluster-${clusterName}`);
+        const clusterElement = document.getElementById(
+          `cluster-${clusterName}`,
+        );
 
         if (statusElement) {
           statusElement.className = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;

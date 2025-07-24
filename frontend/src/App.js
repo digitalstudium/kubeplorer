@@ -195,17 +195,22 @@ class App {
   }
 
   translateAll() {
-    this.mainScreen.querySelectorAll("[data-translate]").forEach((element) => {
-      const key = element.dataset.translate;
-      const translatedText = Utils.translate(key);
-      if (translatedText) {
-        element.placeholder === ""
-          ? (element.placeholder = translatedText)
-          : (element.textContent = translatedText);
-      } else {
-        console.warn(`Translation not found for key: ${key}`);
-      }
-    });
+    const activeTabContent = document.querySelector(".tab-content.active");
+    if (activeTabContent) {
+      activeTabContent
+        .querySelectorAll("[data-translate]")
+        .forEach((element) => {
+          const key = element.dataset.translate;
+          const translatedText = Utils.translate(key);
+          if (translatedText) {
+            element.placeholder === ""
+              ? (element.placeholder = translatedText)
+              : (element.textContent = translatedText);
+          } else {
+            console.warn(`Translation not found for key: ${key}`);
+          }
+        });
+    }
   }
 
   clearUIState() {
