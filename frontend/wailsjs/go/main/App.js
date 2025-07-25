@@ -34,6 +34,10 @@ export function GetPodContainerLogs(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetPodContainerLogs'](arg1, arg2, arg3, arg4);
 }
 
+export function GetResourceDependencies(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetResourceDependencies'](arg1, arg2, arg3, arg4);
+}
+
 export function GetResourceYAML(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetResourceYAML'](arg1, arg2, arg3, arg4);
 }

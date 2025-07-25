@@ -39,12 +39,17 @@ const (
 
 // App holds the application context
 type App struct {
-	ctx context.Context
+	ctx                     context.Context
+	managementClusters      map[string][]string // management cluster name -> API server IPs of managed clusters
+	mgmtClustersInitialized bool
+	mgmtClustersMutex       sync.RWMutex
 }
 
 // NewApp creates a new App.
 func NewApp() *App {
-	return &App{}
+	return &App{
+		managementClusters: make(map[string][]string),
+	}
 }
 
 // startup is called when the app starts. The context is saved
@@ -396,12 +401,12 @@ func calculatePodStatus(pod unstructured.Unstructured) (status string, restarts 
 
 	statusObj := extractMap(pod.Object, "status")
 	status = extractString(statusObj, "phase")
-	
+
 	if containerStatuses := extractSlice(statusObj, "containerStatuses"); len(containerStatuses) > 0 {
 		for _, cs := range containerStatuses {
 			if container, ok := cs.(map[string]interface{}); ok {
 				restarts += int32(extractInt64(container, "restartCount"))
-				
+
 				// Check for waiting/terminated states
 				if state := extractMap(container, "state"); len(state) > 0 {
 					if waiting := extractMap(state, "waiting"); len(waiting) > 0 {
@@ -419,13 +424,13 @@ func calculatePodStatus(pod unstructured.Unstructured) (status string, restarts 
 			}
 		}
 	}
-	
+
 	return status, restarts, calculatePodReadyStatus(pod)
 }
 
 func extractContainerNames(spec map[string]interface{}) []string {
 	var containerNames []string
-	
+
 	// Init containers
 	for _, initC := range extractSlice(spec, "initContainers") {
 		if m, ok := initC.(map[string]interface{}); ok {
@@ -434,7 +439,7 @@ func extractContainerNames(spec map[string]interface{}) []string {
 			}
 		}
 	}
-	
+
 	// Regular containers
 	for _, c := range extractSlice(spec, "containers") {
 		if m, ok := c.(map[string]interface{}); ok {
@@ -443,7 +448,7 @@ func extractContainerNames(spec map[string]interface{}) []string {
 			}
 		}
 	}
-	
+
 	return containerNames
 }
 
@@ -484,10 +489,10 @@ func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace strin
 			status, restarts, readyStatus := calculatePodStatus(item)
 			pod := PodResponse{
 				ResourceResponse: base,
-				Status:          status,
-				Restarts:        restarts,
-				ReadyStatus:     readyStatus,
-				Containers:      extractContainerNames(extractMap(item.Object, "spec")),
+				Status:           status,
+				Restarts:         restarts,
+				ReadyStatus:      readyStatus,
+				Containers:       extractContainerNames(extractMap(item.Object, "spec")),
 			}
 			responses = append(responses, pod)
 		case "deployment":
@@ -580,7 +585,7 @@ func (a *App) GetPodContainerLogs(clusterName, namespace, podName, containerName
 		Container: containerName,
 		Follow:    false,
 	})
-	
+
 	podLogs, err := req.Stream(context.Background())
 	if err != nil {
 		return "", fmt.Errorf("failed to get logs stream: %w", err)
@@ -1047,7 +1052,7 @@ func (a *App) GetEvents(clusterName, resourceName, namespace, name string) (stri
 	// Get events
 	eventsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "events"}
 	var events *unstructured.UnstructuredList
-	
+
 	if resourceInfo.Namespaced {
 		events, err = clients.DynamicClient.Resource(eventsGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{
 			FieldSelector: fmt.Sprintf("involvedObject.uid=%s", uid),
@@ -1064,7 +1069,7 @@ func (a *App) GetEvents(clusterName, resourceName, namespace, name string) (stri
 	var eventList []map[string]string
 	for _, event := range events.Items {
 		eventData := event.Object
-		
+
 		from := extractString(eventData, "reportingComponent")
 		if from == "" {
 			if source := extractMap(eventData, "source"); len(source) > 0 {
@@ -1088,7 +1093,6 @@ func (a *App) GetEvents(clusterName, resourceName, namespace, name string) (stri
 	return string(jsonData), nil
 }
 
-
 // Helper function to correctly calculate event age
 func getEventAge(eventData map[string]interface{}) string {
 	timeFields := []string{"eventTime", "lastTimestamp", "firstTimestamp"}
@@ -1109,7 +1113,7 @@ func (a *App) setupExecRequest(clusterName, namespace, podName, containerName st
 	if err != nil {
 		return nil, nil, err
 	}
-	
+
 	req := clients.Clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Namespace(namespace).
@@ -1123,6 +1127,749 @@ func (a *App) setupExecRequest(clusterName, namespace, podName, containerName st
 			Stderr:    !tty,
 			TTY:       tty,
 		}, scheme.ParameterCodec)
-	
+
 	return clients.RestConfig, req, nil
+}
+
+// DependencyInfo represents dependency information for a resource
+type DependencyInfo struct {
+	Parents  []ResourceRef `json:"parents"`
+	Children []ResourceRef `json:"children"`
+}
+
+// ResourceRef represents a reference to a Kubernetes resource
+type ResourceRef struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	UID       string `json:"uid"`
+}
+
+// GetResourceDependencies retrieves the complete dependency chain for a specific resource
+func (a *App) GetResourceDependencies(clusterName, apiResource, namespace, resourceName string) (*DependencyChain, error) {
+	log.Printf("Getting dependencies for %s/%s in namespace %s, cluster %s", apiResource, resourceName, namespace, clusterName)
+
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	resourceInfo, gvr, err := a.findResourceInfo(clusterName, apiResource)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the target resource
+	var obj *unstructured.Unstructured
+	if resourceInfo.Namespaced {
+		obj, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), resourceName, metav1.GetOptions{})
+	} else {
+		obj, err = clients.DynamicClient.Resource(gvr).Get(context.Background(), resourceName, metav1.GetOptions{})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	// Create current resource reference
+	metadata := extractMap(obj.Object, "metadata")
+	current := ResourceRef{
+		Name:      resourceName,
+		Kind:      obj.GetKind(),
+		Namespace: namespace,
+		UID:       extractString(metadata, "uid"),
+	}
+
+	log.Printf("Current resource: %+v", current)
+
+	chain := &DependencyChain{
+		Current:      current,
+		Ancestors:    []ResourceRef{},
+		Descendants:  []ResourceRef{},
+		Applications: []ApplicationRef{},
+	}
+
+	// Build complete ancestor chain
+	ancestors, err := a.buildAncestorChain(clients, obj, namespace)
+	if err != nil {
+		log.Printf("Error building ancestor chain: %v", err)
+	} else {
+		log.Printf("Found %d ancestors", len(ancestors))
+		chain.Ancestors = ancestors
+	}
+
+	// Find descendants - используем разные стратегии в зависимости от типа ресурса
+	var descendants []ResourceRef
+	switch strings.ToLower(obj.GetKind()) {
+	case "service":
+		descendants, err = a.findServiceDependencies(clients, namespace, resourceName)
+	default:
+		descendants, err = a.findAllDescendants(clients, namespace, current.UID)
+	}
+
+	if err != nil {
+		log.Printf("Error finding descendants: %v", err)
+	} else {
+		log.Printf("Found %d descendants", len(descendants))
+		chain.Descendants = descendants
+	}
+
+	applications, err := a.findRelatedApplications(clients, obj, clusterName)
+	if err != nil {
+		log.Printf("Error finding related applications: %v", err)
+	} else {
+		chain.Applications = applications
+	}
+
+	return chain, nil
+}
+
+// findServiceDependencies finds resources related to a Service
+func (a *App) findServiceDependencies(clients *KubeClients, namespace, serviceName string) ([]ResourceRef, error) {
+	var dependencies []ResourceRef
+
+	// Find Endpoints with the same name as the service
+	endpointsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "endpoints"}
+	endpoints, err := clients.DynamicClient.Resource(endpointsGVR).Namespace(namespace).Get(context.Background(), serviceName, metav1.GetOptions{})
+	if err == nil {
+		dependencies = append(dependencies, ResourceRef{
+			Name:      endpoints.GetName(),
+			Kind:      "Endpoints",
+			Namespace: namespace,
+			UID:       extractString(extractMap(endpoints.Object, "metadata"), "uid"),
+		})
+	}
+
+	// Find EndpointSlices that reference this service
+	endpointSlicesGVR := schema.GroupVersionResource{Group: "discovery.k8s.io", Version: "v1", Resource: "endpointslices"}
+	endpointSlicesList, err := clients.DynamicClient.Resource(endpointSlicesGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("kubernetes.io/service-name=%s", serviceName),
+	})
+	if err == nil {
+		for _, slice := range endpointSlicesList.Items {
+			dependencies = append(dependencies, ResourceRef{
+				Name:      slice.GetName(),
+				Kind:      "EndpointSlice",
+				Namespace: namespace,
+				UID:       extractString(extractMap(slice.Object, "metadata"), "uid"),
+			})
+		}
+	}
+
+	// Find Pods that match the service selector
+	service, err := clients.DynamicClient.Resource(schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}).
+		Namespace(namespace).Get(context.Background(), serviceName, metav1.GetOptions{})
+	if err == nil {
+		spec := extractMap(service.Object, "spec")
+		selector := extractMap(spec, "selector")
+
+		if len(selector) > 0 {
+			// Build label selector string
+			var selectorParts []string
+			for key, value := range selector {
+				if valueStr, ok := value.(string); ok {
+					selectorParts = append(selectorParts, fmt.Sprintf("%s=%s", key, valueStr))
+				}
+			}
+
+			if len(selectorParts) > 0 {
+				labelSelector := strings.Join(selectorParts, ",")
+				podsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+				podsList, err := clients.DynamicClient.Resource(podsGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{
+					LabelSelector: labelSelector,
+				})
+				if err == nil {
+					for _, pod := range podsList.Items {
+						dependencies = append(dependencies, ResourceRef{
+							Name:      pod.GetName(),
+							Kind:      "Pod",
+							Namespace: namespace,
+							UID:       extractString(extractMap(pod.Object, "metadata"), "uid"),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("Found %d service dependencies for %s", len(dependencies), serviceName)
+	return dependencies, nil
+}
+
+// findChildResources finds all resources that have the given UID as an owner reference
+func (a *App) findChildResources(clients *KubeClients, namespace, ownerUID string) ([]ResourceRef, error) {
+	var children []ResourceRef
+
+	// Get all API resources to search through
+	discoveryClient := discovery.NewDiscoveryClient(clients.Clientset.RESTClient())
+	_, apiGroupResources, err := discoveryClient.ServerGroupsAndResources()
+	if err != nil {
+		return children, err
+	}
+
+	// Search through common resource types that typically have owners
+	commonResources := []string{"pods", "replicasets", "services", "configmaps", "secrets"}
+
+	for _, groupResource := range apiGroupResources {
+		for _, resource := range groupResource.APIResources {
+			// Skip subresources and non-listable resources
+			if strings.Contains(resource.Name, "/") || !slices.Contains(resource.Verbs, "list") {
+				continue
+			}
+
+			// Only check common resources to avoid performance issues
+			if !slices.Contains(commonResources, resource.Name) {
+				continue
+			}
+
+			gv, err := schema.ParseGroupVersion(groupResource.GroupVersion)
+			if err != nil {
+				continue
+			}
+
+			gvr := schema.GroupVersionResource{
+				Group:    gv.Group,
+				Version:  gv.Version,
+				Resource: resource.Name,
+			}
+
+			var list *unstructured.UnstructuredList
+			if resource.Namespaced {
+				list, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
+			} else {
+				list, err = clients.DynamicClient.Resource(gvr).List(context.Background(), metav1.ListOptions{})
+			}
+			if err != nil {
+				continue // Skip resources we can't list
+			}
+
+			// Check each resource for owner references
+			for _, item := range list.Items {
+				metadata := extractMap(item.Object, "metadata")
+				if ownerRefs := extractSlice(metadata, "ownerReferences"); len(ownerRefs) > 0 {
+					for _, ownerRef := range ownerRefs {
+						if owner, ok := ownerRef.(map[string]interface{}); ok {
+							if extractString(owner, "uid") == ownerUID {
+								children = append(children, ResourceRef{
+									Name:      item.GetName(),
+									Kind:      item.GetKind(),
+									Namespace: item.GetNamespace(),
+									UID:       extractString(metadata, "uid"),
+								})
+								break // Found owner match, no need to check other owners
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return children, nil
+}
+
+// DependencyChain represents the complete dependency chain
+type DependencyChain struct {
+	Ancestors    []ResourceRef    `json:"ancestors"`
+	Current      ResourceRef      `json:"current"`
+	Descendants  []ResourceRef    `json:"descendants"`
+	Applications []ApplicationRef `json:"applications"` // Добавьте это поле
+}
+
+// buildAncestorChain recursively builds the complete chain of ancestors
+func (a *App) buildAncestorChain(clients *KubeClients, obj *unstructured.Unstructured, namespace string) ([]ResourceRef, error) {
+	var ancestors []ResourceRef
+
+	metadata := extractMap(obj.Object, "metadata")
+	ownerRefs := extractSlice(metadata, "ownerReferences")
+
+	if len(ownerRefs) == 0 {
+		return ancestors, nil
+	}
+
+	// Process each owner (usually there's only one, but handle multiple)
+	for _, ownerRef := range ownerRefs {
+		if owner, ok := ownerRef.(map[string]interface{}); ok {
+			ownerName := extractString(owner, "name")
+			ownerKind := extractString(owner, "kind")
+			ownerAPIVersion := extractString(owner, "apiVersion")
+
+			if ownerName == "" || ownerKind == "" {
+				continue
+			}
+
+			// Create owner reference
+			ownerResource := ResourceRef{
+				Name:      ownerName,
+				Kind:      ownerKind,
+				Namespace: namespace,
+				UID:       extractString(owner, "uid"),
+			}
+
+			// Try to get the owner object to continue the chain
+			ownerObj, err := a.getResourceByKindAndName(clients, ownerKind, ownerAPIVersion, namespace, ownerName)
+			if err != nil {
+				log.Printf("Could not get owner %s/%s: %v", ownerKind, ownerName, err)
+				// Add this owner even if we can't get its details
+				ancestors = append([]ResourceRef{ownerResource}, ancestors...)
+				continue
+			}
+
+			// Recursively get ancestors of this owner
+			parentAncestors, err := a.buildAncestorChain(clients, ownerObj, namespace)
+			if err != nil {
+				log.Printf("Error getting ancestors for %s/%s: %v", ownerKind, ownerName, err)
+			}
+
+			// Build the chain: parent's ancestors + parent + current ancestors
+			ancestors = append(parentAncestors, ownerResource)
+		}
+	}
+
+	return ancestors, nil
+}
+
+// getResourceByKindAndName gets a resource by its kind, apiVersion, and name
+func (a *App) getResourceByKindAndName(clients *KubeClients, kind, apiVersion, namespace, name string) (*unstructured.Unstructured, error) {
+	// Parse the apiVersion to get group and version
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse apiVersion %s: %w", apiVersion, err)
+	}
+
+	// Convert kind to resource name (simple pluralization)
+	resourceName := strings.ToLower(kind) + "s"
+
+	// Handle special cases
+	switch strings.ToLower(kind) {
+	case "networkpolicy":
+		resourceName = "networkpolicies"
+	case "horizontalpodautoscaler":
+		resourceName = "horizontalpodautoscalers"
+	case "poddisruptionbudget":
+		resourceName = "poddisruptionbudgets"
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    gv.Group,
+		Version:  gv.Version,
+		Resource: resourceName,
+	}
+
+	// Try to get the resource
+	var obj *unstructured.Unstructured
+	if namespace != "" {
+		obj, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	} else {
+		obj, err = clients.DynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
+	}
+
+	return obj, err
+}
+
+// findAllDescendants finds all resources that have the given UID as an owner reference (recursively)
+func (a *App) findAllDescendants(clients *KubeClients, namespace, ownerUID string) ([]ResourceRef, error) {
+	visited := make(map[string]bool) // Prevent infinite loops
+
+	return a.findDescendantsRecursive(clients, namespace, ownerUID, visited)
+}
+
+// findDescendantsRecursive recursively finds descendants
+func (a *App) findDescendantsRecursive(clients *KubeClients, namespace, ownerUID string, visited map[string]bool) ([]ResourceRef, error) {
+	if visited[ownerUID] {
+		return []ResourceRef{}, nil
+	}
+	visited[ownerUID] = true
+
+	var descendants []ResourceRef
+
+	// Get direct children
+	directChildren, err := a.findChildResources(clients, namespace, ownerUID)
+	if err != nil {
+		return descendants, err
+	}
+
+	// For each direct child, find its descendants too
+	for _, child := range directChildren {
+		descendants = append(descendants, child)
+
+		// Recursively find descendants of this child
+		childDescendants, err := a.findDescendantsRecursive(clients, namespace, child.UID, visited)
+		if err != nil {
+			log.Printf("Error finding descendants for %s: %v", child.Name, err)
+			continue
+		}
+		descendants = append(descendants, childDescendants...)
+	}
+
+	return descendants, nil
+}
+
+// ApplicationRef represents an ArgoCD Application reference
+type ApplicationRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Cluster   string `json:"cluster"` // Management cluster name
+}
+
+// getClusterAPIServerIP получает IP API сервера кластера через Kubernetes API (master ноды)
+func (a *App) getClusterAPIServerIP(clusterName string) (string, error) {
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return "", err
+	}
+
+	// Получаем список нод
+	nodes, err := clients.Clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get nodes: %w", err)
+	}
+
+	// Ищем только master ноды
+	for _, node := range nodes.Items {
+		// Проверяем роли ноды
+		labels := node.GetLabels()
+		isMaster := labels["node-role.kubernetes.io/master"] == "" ||
+			labels["node-role.kubernetes.io/control-plane"] == "" ||
+			labels["kubernetes.io/role"] == "master"
+
+		if !isMaster {
+			continue // Пропускаем не-master ноды
+		}
+
+		// Получаем InternalIP master ноды
+		for _, address := range node.Status.Addresses {
+			if address.Type == "InternalIP" && address.Address != "" {
+				return address.Address, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no master node with internal IP found for cluster %s", clusterName)
+}
+
+// extractIPFromServerURL извлекает IP адрес из server URL, резолвя hostname если нужно
+func (a *App) extractIPFromServerURL(serverURL string) string {
+	// Убираем протокол
+	serverURL = strings.TrimPrefix(serverURL, "https://")
+	serverURL = strings.TrimPrefix(serverURL, "http://")
+
+	// Убираем порт
+	host := serverURL
+	if colonIndex := strings.LastIndex(serverURL, ":"); colonIndex != -1 {
+		host = serverURL[:colonIndex]
+	}
+
+	// Проверяем что это уже IP адрес
+	if net.ParseIP(host) != nil {
+		log.Printf("Server URL contains IP address: %s", host)
+		return host
+	}
+
+	// Обрабатываем in-cluster ссылки - возвращаем специальный маркер
+	if host == "kubernetes.default.svc" || strings.HasSuffix(host, ".default.svc") {
+		log.Printf("Found in-cluster server URL: %s", host)
+		return "in-cluster"
+	}
+
+	// Это hostname, нужно резолвить
+	log.Printf("Server URL contains hostname: %s, resolving...", host)
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		log.Printf("Failed to resolve hostname %s: %v", host, err)
+		return ""
+	}
+
+	// Возвращаем первый IPv4 адрес
+	for _, ip := range ips {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			resolvedIP := ipv4.String()
+			log.Printf("Resolved hostname %s to IP: %s", host, resolvedIP)
+			return resolvedIP
+		}
+	}
+
+	log.Printf("No IPv4 address found for hostname %s", host)
+	return ""
+}
+
+// initializeManagementClusters инициализирует кэш management кластеров (выполняется один раз)
+func (a *App) initializeManagementClusters() {
+	a.mgmtClustersMutex.Lock()
+	defer a.mgmtClustersMutex.Unlock()
+
+	if a.mgmtClustersInitialized {
+		return
+	}
+
+	log.Printf("Initializing management clusters cache...")
+
+	kubeConfig, err := loadKubeConfig()
+	if err != nil {
+		log.Printf("Error loading kubeconfig: %v", err)
+		a.mgmtClustersInitialized = true
+		return
+	}
+
+	// Проверяем каждый кластер на наличие namespace argocd
+	for clusterName := range kubeConfig.Contexts {
+		if a.hasArgoCDNamespace(clusterName) {
+			log.Printf("Cluster %s has argocd namespace, checking for cluster secrets...", clusterName)
+
+			// Получаем список управляемых кластеров из ArgoCD секретов
+			managedIPs := a.getManagedClusterIPs(clusterName)
+
+			// Считаем management кластером только если есть cluster secrets
+			if len(managedIPs) > 0 {
+				a.managementClusters[clusterName] = managedIPs
+				log.Printf("Management cluster %s manages %d clusters", clusterName, len(managedIPs))
+			} else {
+				log.Printf("Cluster %s has argocd namespace but no cluster secrets - not a management cluster", clusterName)
+			}
+		}
+	}
+
+	a.mgmtClustersInitialized = true
+	log.Printf("Management clusters cache initialized. Found %d management clusters", len(a.managementClusters))
+}
+
+// hasArgoCDNamespace проверяет наличие namespace argocd в кластере
+func (a *App) hasArgoCDNamespace(clusterName string) bool {
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return false
+	}
+
+	_, err = clients.Clientset.CoreV1().Namespaces().Get(
+		context.Background(), "argocd", metav1.GetOptions{})
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false
+		}
+		// Если ошибка доступа (403), то namespace может существовать
+		if statusErr, ok := err.(*errors.StatusError); ok && statusErr.Status().Code == 403 {
+			return true
+		}
+		return false
+	}
+
+	return true
+}
+
+// getManagedClusterIPs получает список IP адресов управляемых кластеров из ArgoCD секретов
+func (a *App) getManagedClusterIPs(mgmtCluster string) []string {
+	var managedIPs []string
+
+	clients, err := a.getKubeClients(mgmtCluster)
+	if err != nil {
+		log.Printf("Cannot connect to management cluster %s: %v", mgmtCluster, err)
+		return managedIPs
+	}
+
+	// Получаем секреты кластеров по label selector
+	secrets, err := clients.Clientset.CoreV1().Secrets("argocd").List(
+		context.Background(), metav1.ListOptions{
+			LabelSelector: "argocd.argoproj.io/secret-type=cluster",
+		})
+
+	if err != nil {
+		log.Printf("Cannot get cluster secrets from %s/argocd: %v", mgmtCluster, err)
+		return managedIPs
+	}
+
+	log.Printf("Found %d cluster secrets in management cluster %s", len(secrets.Items), mgmtCluster)
+
+	// Извлекаем IP из каждого секрета
+	for _, secret := range secrets.Items {
+		serverURL, exists := secret.Data["server"]
+		if !exists {
+			log.Printf("Cluster secret %s has no 'server' field", secret.Name)
+			continue
+		}
+
+		serverStr := string(serverURL)
+		ip := a.extractIPFromServerURL(serverStr)
+		if ip != "" {
+			managedIPs = append(managedIPs, ip)
+			log.Printf("Management cluster %s manages cluster with IP: %s (from secret %s)",
+				mgmtCluster, ip, secret.Name)
+		}
+	}
+
+	return managedIPs
+}
+
+// getManagementClusterForWorkload находит management кластер для указанного workload кластера
+func (a *App) getManagementClusterForWorkload(workloadCluster string) string {
+	// Инициализируем кэш если еще не сделали
+	a.initializeManagementClusters()
+
+	// Получаем все IP API серверов workload кластера
+	workloadIPs, err := a.getClusterAPIServerIPs(workloadCluster)
+	if err != nil {
+		log.Printf("Cannot get API server IPs for cluster %s: %v", workloadCluster, err)
+		return ""
+	}
+
+	if len(workloadIPs) == 0 {
+		log.Printf("No API server IPs found for cluster %s", workloadCluster)
+		return ""
+	}
+
+	log.Printf("Workload cluster %s has API server IPs: %v", workloadCluster, workloadIPs)
+
+	// Ищем в кэше management кластер, который управляет любым из этих IP
+	a.mgmtClustersMutex.RLock()
+	defer a.mgmtClustersMutex.RUnlock()
+
+	for mgmtCluster, managedIPs := range a.managementClusters {
+		for _, managedIP := range managedIPs {
+			// Проверяем каждый IP workload кластера
+			for _, workloadIP := range workloadIPs {
+				if managedIP == workloadIP {
+					log.Printf("Found management cluster %s for workload cluster %s (matched IP: %s)",
+						mgmtCluster, workloadCluster, workloadIP)
+					return mgmtCluster
+				}
+			}
+			// Проверяем in-cluster случай
+			if managedIP == "in-cluster" && mgmtCluster == workloadCluster {
+				log.Printf("Found in-cluster management for workload cluster %s", workloadCluster)
+				return mgmtCluster
+			}
+		}
+	}
+
+	log.Printf("No management cluster found for workload cluster %s (IPs: %v)",
+		workloadCluster, workloadIPs)
+	return ""
+}
+
+// checkApplicationExists проверяет существование ArgoCD Application
+func (a *App) checkApplicationExists(clusterName, namespace, appName string) (bool, error) {
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return false, err
+	}
+
+	// ArgoCD Application GVR
+	appGVR := schema.GroupVersionResource{
+		Group:    "argoproj.io",
+		Version:  "v1alpha1",
+		Resource: "applications",
+	}
+
+	_, err = clients.DynamicClient.Resource(appGVR).Namespace(namespace).Get(
+		context.Background(), appName, metav1.GetOptions{})
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+// findRelatedApplications ищет ArgoCD Applications связанные с ресурсом
+func (a *App) findRelatedApplications(clients *KubeClients, obj *unstructured.Unstructured, clusterName string) ([]ApplicationRef, error) {
+	var applications []ApplicationRef
+
+	// Получаем метаданные ресурса
+	metadata := extractMap(obj.Object, "metadata")
+	labels := extractMap(metadata, "labels")
+
+	// Ищем ArgoCD instance label
+	instanceLabel, hasInstance := labels["argocd.argoproj.io/instance"]
+	if !hasInstance {
+		return applications, nil
+	}
+
+	instanceStr, ok := instanceLabel.(string)
+	if !ok || instanceStr == "" {
+		return applications, nil
+	}
+
+	log.Printf("Found ArgoCD instance label: %s", instanceStr)
+
+	// Парсим instance label: обычно формат "namespace_appname"
+	parts := strings.Split(instanceStr, "_")
+	if len(parts) < 2 {
+		log.Printf("Cannot parse ArgoCD instance label: %s", instanceStr)
+		return applications, nil
+	}
+
+	appNamespace := parts[0]
+	appName := strings.Join(parts[1:], "_") // На случай если в имени есть подчеркивания
+
+	// Ищем подходящий management кластер
+	managementCluster := a.getManagementClusterForWorkload(clusterName)
+	if managementCluster == "" {
+		log.Printf("No management cluster found for workload cluster %s", clusterName)
+		return applications, nil
+	}
+
+	// Проверяем существование Application
+	exists, err := a.checkApplicationExists(managementCluster, appNamespace, appName)
+	if err != nil {
+		log.Printf("Error checking application existence: %v", err)
+		return applications, nil
+	}
+
+	if exists {
+		applications = append(applications, ApplicationRef{
+			Name:      appName,
+			Namespace: appNamespace,
+			Cluster:   managementCluster,
+		})
+		log.Printf("Found related Application: %s/%s in cluster %s", appNamespace, appName, managementCluster)
+	}
+
+	return applications, nil
+}
+
+// getClusterAPIServerIP получает все IP API серверов кластера (все master ноды)
+func (a *App) getClusterAPIServerIPs(clusterName string) ([]string, error) {
+	var masterIPs []string
+
+	clients, err := a.getKubeClients(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Получаем список нод
+	nodes, err := clients.Clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get nodes: %w", err)
+	}
+
+	// Ищем все master ноды
+	for _, node := range nodes.Items {
+		// Проверяем роли ноды
+		labels := node.GetLabels()
+		_, hasMaster := labels["node-role.kubernetes.io/master"]
+		_, hasControlPlane := labels["node-role.kubernetes.io/control-plane"]
+		isMasterRole := labels["kubernetes.io/role"] == "master"
+
+		isMaster := hasMaster || hasControlPlane || isMasterRole
+
+		if !isMaster {
+			continue // Пропускаем не-master ноды
+		}
+
+		// Получаем InternalIP master ноды
+		for _, address := range node.Status.Addresses {
+			if address.Type == "InternalIP" && address.Address != "" {
+				masterIPs = append(masterIPs, address.Address)
+				log.Printf("Found master node IP in cluster %s: %s", clusterName, address.Address)
+			}
+		}
+	}
+
+	if len(masterIPs) == 0 {
+		return nil, fmt.Errorf("no master nodes with internal IP found for cluster %s", clusterName)
+	}
+
+	return masterIPs, nil
 }

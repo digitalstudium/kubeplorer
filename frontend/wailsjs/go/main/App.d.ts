@@ -19,6 +19,8 @@ export function GetNamespaces(arg1:string):Promise<Array<string>>;
 
 export function GetPodContainerLogs(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
+export function GetResourceDependencies(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.DependencyChain>;
+
 export function GetResourceYAML(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function GetResourcesInNamespace(arg1:string,arg2:string,arg3:string):Promise<Array<any>>;

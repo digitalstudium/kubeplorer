@@ -17,6 +17,7 @@ import yamlWorker from "monaco-yaml/yaml.worker?worker";
 
 class App {
   constructor() {
+    window.app = this;
     this.panels = [];
     this.clustersScreen = null;
     this.clustersList = null;
@@ -147,6 +148,53 @@ class App {
         }
       }, 200);
     }
+  }
+  
+  goToApplication(application) {
+    console.log("Going to application:", application);
+    console.log("Current cluster:", this.stateManager?.getState("selectedCluster"));
+    console.log("Target cluster:", application.cluster);
+    console.log("StateManager exists:", !!this.stateManager);
+  
+    const currentCluster = this.stateManager?.getState("selectedCluster");
+    const targetCluster = application.cluster;
+    const targetNamespace = application.namespace;
+    const targetApiResource = "applications";
+  
+    // Проверяем, не находимся ли мы уже в нужном месте
+    if (
+      currentCluster === targetCluster &&
+      this.stateManager?.getState("selectedNamespace") === targetNamespace &&
+      this.stateManager?.getState("selectedApiResource") === targetApiResource
+    ) {
+      console.log("Already at application location, nothing to do");
+      return;
+    }
+  
+    // Если кластер отличается или stateManager нет, делаем полный цикл
+    if (!this.stateManager || currentCluster !== targetCluster) {
+      this.goBackToClusterSelection();
+  
+      if (this.stateManager) {
+        this.stateManager.setState("selectedNamespace", targetNamespace);
+        this.stateManager.setState("selectedApiResource", targetApiResource);
+      }
+      
+      this.selectCluster(targetCluster);
+    } else {
+      // Кластер тот же, просто меняем namespace и apiResource
+      if (this.stateManager) {
+        this.stateManager.setState("selectedNamespace", targetNamespace);
+        this.stateManager.setState("selectedApiResource", targetApiResource);
+      }
+    }
+  
+    // Добавляем выбор самого ресурса после небольшой задержки
+    setTimeout(() => {
+      if (this.panels && this.panels[2]) { // ResourcesPanel это panels[2]
+        this.panels[2].waitForResourceAndClick(application.name);
+      }
+    }, 1000);
   }
 
   // Callback method called by TabsManager when tab content changes
