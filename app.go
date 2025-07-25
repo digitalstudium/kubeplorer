@@ -1886,9 +1886,10 @@ func (a *App) findRelatedApplications(clients *KubeClients, obj *unstructured.Un
 
 	log.Printf("Found ArgoCD tracking-id annotation: %s", trackingStr)
 
-	// Парсим tracking-id: может быть два формата:
+	// Парсим tracking-id: может быть три формата:
 	// 1. "namespace_appname:group/version"
 	// 2. "parent-app:argoproj.io/Application:namespace/child-app"
+	// 3. "parent-app:argoproj.io/ApplicationSet:namespace/child-appset"
 	colonIndex := strings.Index(trackingStr, ":")
 	if colonIndex == -1 {
 		log.Printf("Cannot parse ArgoCD tracking-id annotation: %s", trackingStr)
@@ -1897,11 +1898,12 @@ func (a *App) findRelatedApplications(clients *KubeClients, obj *unstructured.Un
 
 	var appNamespace, appName string
 
-	// Проверяем, содержит ли tracking-id "argoproj.io/Application"
-	if strings.Contains(trackingStr, "argoproj.io/Application:") {
+	// Проверяем, содержит ли tracking-id ArgoCD ресурсы
+	if strings.Contains(trackingStr, "argoproj.io/Application:") || strings.Contains(trackingStr, "argoproj.io/ApplicationSet:") {
 		// Формат: parent-app:argoproj.io/Application:namespace/child-app
-		// Parent application всегда в namespace argocd
-		parentApp := trackingStr[:colonIndex] // "product-apps-prd-k8sexp-apps-k8s-core-el"
+		// или: parent-app:argoproj.io/ApplicationSet:namespace/child-appset
+		// Parent всегда в namespace argocd
+		parentApp := trackingStr[:colonIndex] // "product-apps-prd-k8sexp-apps-k8s-core-el" или "product-apps-prd-init"
 
 		appNamespace = "argocd"
 		appName = parentApp
