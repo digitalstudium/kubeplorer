@@ -59,15 +59,18 @@ export class PodResource extends Resource {
   }
 
   setupDropdown(event, resourceItem, actionHandler) {
-    event.stopPropagation(); // Prevent parent click events
-    // Create the dropdown with the provided action handler
+    event.stopPropagation();
     const dropdown = this.createDropdown(actionHandler);
-    // Append the dropdown to the resource item
-    resourceItem.append(dropdown);
-    // Position the dropdown relative to the mouse pointer
-    dropdown.style.left = `${event.pageX - dropdown.clientWidth + 15}px`;
+
+    // Добавляем в body вместо resourceItem
+    document.body.append(dropdown);
+
+    // Теперь pageX/pageY будут работать корректно
+    dropdown.style.position = "absolute";
+    dropdown.style.left = `${event.pageX - dropdown.offsetWidth + 15}px`;
     dropdown.style.top = `${event.pageY - 15}px`;
-    // Remove the dropdown when the mouse leaves it
+    dropdown.style.zIndex = "9999";
+
     dropdown.onmouseleave = () => {
       dropdown.remove();
     };
