@@ -52,7 +52,7 @@ class App {
   updateBookmarksPanel() {
     if (!this.bookmarksPanel) return;
 
-    const bookmarks = this.bookmarksManager.getBookmarks();
+    const bookmarks = this.bookmarksManager.getBookmarksWithConnectivity();
 
     // Очищаем панель
     this.bookmarksPanel.innerHTML = "";
@@ -73,9 +73,20 @@ class App {
         const bookmarkContainer = document.createElement("div");
         bookmarkContainer.className = "bookmark-container";
 
+        // Добавляем класс для отключенных кластеров
+        if (!bookmark.isConnected) {
+          bookmarkContainer.classList.add("disabled");
+        }
+
         const bookmarkBtn = document.createElement("button");
         bookmarkBtn.textContent = bookmark.name;
         bookmarkBtn.className = "bookmark-item";
+
+        // Отключаем кнопку если кластер недоступен
+        if (!bookmark.isConnected) {
+          bookmarkBtn.disabled = true;
+          bookmarkBtn.title = `Cluster "${bookmark.cluster}" is not connected`;
+        }
 
         const deleteBtn = document.createElement("button");
         deleteBtn.innerHTML = "×";
@@ -149,18 +160,21 @@ class App {
       }, 200);
     }
   }
-  
+
   goToApplication(application) {
     console.log("Going to application:", application);
-    console.log("Current cluster:", this.stateManager?.getState("selectedCluster"));
+    console.log(
+      "Current cluster:",
+      this.stateManager?.getState("selectedCluster"),
+    );
     console.log("Target cluster:", application.cluster);
     console.log("StateManager exists:", !!this.stateManager);
-  
+
     const currentCluster = this.stateManager?.getState("selectedCluster");
     const targetCluster = application.cluster;
     const targetNamespace = application.namespace;
     const targetApiResource = "applications";
-  
+
     // Проверяем, не находимся ли мы уже в нужном месте
     if (
       currentCluster === targetCluster &&
@@ -170,16 +184,16 @@ class App {
       console.log("Already at application location, nothing to do");
       return;
     }
-  
+
     // Если кластер отличается или stateManager нет, делаем полный цикл
     if (!this.stateManager || currentCluster !== targetCluster) {
       this.goBackToClusterSelection();
-  
+
       if (this.stateManager) {
         this.stateManager.setState("selectedNamespace", targetNamespace);
         this.stateManager.setState("selectedApiResource", targetApiResource);
       }
-      
+
       this.selectCluster(targetCluster);
     } else {
       // Кластер тот же, просто меняем namespace и apiResource
@@ -188,10 +202,11 @@ class App {
         this.stateManager.setState("selectedApiResource", targetApiResource);
       }
     }
-  
+
     // Добавляем выбор самого ресурса после небольшой задержки
     setTimeout(() => {
-      if (this.panels && this.panels[2]) { // ResourcesPanel это panels[2]
+      if (this.panels && this.panels[2]) {
+        // ResourcesPanel это panels[2]
         this.panels[2].waitForResourceAndClick(application.name);
       }
     }, 1000);
@@ -418,6 +433,10 @@ class App {
     } else {
       alert("Please select cluster, namespace and resource type first");
     }
+  }
+
+  updateBookmarksDisplay() {
+    this.updateBookmarksPanel();
   }
 
   async updateClusterStatus() {

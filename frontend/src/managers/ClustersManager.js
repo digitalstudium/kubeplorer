@@ -92,7 +92,7 @@ export class ClustersManager {
       // Check connectivity and update statuses
       const statusChanges =
         await this.checkConnectivityWithChanges(newClusters);
-      
+
       this.setupClusterSearch();
 
       // Schedule next update
@@ -149,11 +149,22 @@ export class ClustersManager {
           }
         }
 
-        return isConnected;
+        return { clusterName, isConnected };
       },
     );
 
-    await Promise.all(clusterPromises);
+    const clusterStatuses = await Promise.all(clusterPromises);
+
+    clusterStatuses.forEach(({ clusterName, isConnected }) => {
+      this.app.bookmarksManager.setClusterConnectivity(
+        clusterName,
+        isConnected,
+      );
+    });
+    this.app.updateBookmarksDisplay();
+
+    this.checkCurrentClusterConnectivity(clusterStatuses);
+
     return hasChanges;
   }
 
@@ -216,6 +227,27 @@ export class ClustersManager {
     if (this._updateInterval) {
       clearInterval(this._updateInterval);
       this._updateInterval = null;
+    }
+  }
+
+  checkCurrentClusterConnectivity(clusterStatuses) {
+    // Проверяем только если мы находимся на главном экране
+    if (!this.app.stateManager) return;
+
+    const currentCluster = this.app.stateManager.getState("selectedCluster");
+    if (!currentCluster) return;
+
+    // Находим статус текущего кластера
+    const currentClusterStatus = clusterStatuses.find(
+      (status) => status.clusterName === currentCluster,
+    );
+
+    // Если текущий кластер стал недоступен, возвращаемся к выбору кластера
+    if (currentClusterStatus && !currentClusterStatus.isConnected) {
+      console.log(
+        `Current cluster ${currentCluster} is disconnected, going back to cluster selection`,
+      );
+      this.app.goBackToClusterSelection();
     }
   }
 }

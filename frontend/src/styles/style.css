@@ -1632,3 +1632,17 @@ body {
   font-size: 14px;
   text-align: center;
 }
+
+.bookmark-container.disabled {
+  opacity: 0.5;
+}
+
+.bookmark-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: #333;
+}
+
+.bookmark-item:disabled:hover {
+  background-color: #333;
+}
