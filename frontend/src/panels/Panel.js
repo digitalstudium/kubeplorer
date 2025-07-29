@@ -5,6 +5,7 @@ export class Panel {
     this.container = container;
     this.tab = tab;
     this.stateManager = stateManager;
+    this.cluster = stateManager?.getState("selectedCluster") || null;
     this.currentPanelId = null;
     this.header1ValueEl = container.querySelector(`.${name} .header1Value`);
     this.header2ValueEl = container.querySelector(`.${name} .header2Value`);
@@ -66,6 +67,13 @@ export class Panel {
     return newSelectedElement;
   }
 
+  scrollToSelected() {
+    this.selectedEl?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }
+
   registerForUpdates(panelId, updateCallback, intervalMs) {
     if (this.stateManager) {
       const updateManager = this.stateManager.getUpdateManager();
@@ -97,6 +105,7 @@ export class Panel {
     this.searchWrapper.remove();
     this.header1ValueEl.textContent = "";
     this.header2ValueEl.textContent = "";
+    this.cluster = null;
     if (this.buttonEl) {
       this.buttonEl.removeEventListener("click", this.buttonFunction);
     }

@@ -153,11 +153,6 @@ class App {
         this.stateManager.setState("selectedApiResource", bookmark.apiResource);
       }
       this.panels[1].selectApiResourceByName(bookmark.apiResource, false);
-      setTimeout(() => {
-        if (this.panels && this.panels[0]) {
-          this.panels[0].scrollToSelected();
-        }
-      }, 200);
     }
   }
 
@@ -383,11 +378,6 @@ class App {
 
       // Теперь обновляем panel3 с правильными значениями
       await panel3.update();
-      setTimeout(() => {
-        if (panel1) {
-          panel1.scrollToSelected();
-        }
-      }, 200);
       this.updateClusterStatus();
       setInterval(() => this.updateClusterStatus(), 10000);
     } catch (error) {

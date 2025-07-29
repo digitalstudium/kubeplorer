@@ -1,72 +1,224 @@
 import { GetNamespaces, GetDefaultNamespace } from "../../wailsjs/go/main/App";
-import { Panel } from "./Panel";
+import { StatefulPanel, PANEL_STATES } from "./StatefulPanel.js";
 
-export class NamespacesPanel extends Panel {
+export class NamespacesPanel extends StatefulPanel {
   constructor(name, container, tab, stateManager = null) {
     super(name, container, tab, stateManager);
     this.currentPanelId = null;
-  }
+    this.cluster = stateManager?.getState("selectedCluster") || null;
 
-  scrollToSelected() {
-    if (this.selectedEl) {
-      this.selectedEl.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
+    // Подписываемся на изменения selectedNamespace
+    if (this.stateManager) {
+      this.stateManager.subscribe("selectedNamespace", (newNamespace) => {
+        this.updateSelectedNamespace(newNamespace);
       });
     }
   }
 
-  select(event) {
-    const newSelection = super.select(event);
-    if (!newSelection) {
-      return;
+  // === ОБРАБОТКА СОСТОЯНИЙ ===
+  onStateChange(oldState, newState, newData, oldData) {
+    switch (newState) {
+      case PANEL_STATES.LOADING:
+        this.handleLoadingState();
+        break;
+
+      case PANEL_STATES.LOADED:
+        this.handleLoadedState(newData);
+        break;
+
+      case PANEL_STATES.SELECTED:
+        this.handleSelectedState(newData);
+
+        // Сравниваем старые и новые данные
+        if (
+          oldState === PANEL_STATES.LOADED ||
+          (oldState === PANEL_STATES.SELECTED &&
+            newData?.selectedNamespace !== oldData?.selectedNamespace)
+        ) {
+          this.scrollToSelected();
+        }
+        break;
+
+      case PANEL_STATES.UPDATING:
+        this.handleUpdatingState();
+        break;
+
+      case PANEL_STATES.ERROR:
+        this.handleErrorState(newData);
+        break;
     }
-    if (this.stateManager) {
-      this.stateManager.setState("selectedNamespace", newSelection.textContent);
-    }
-    this.header2ValueEl.textContent = newSelection.textContent;
   }
-  async update() {
-    const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
-    const currentSelection = this.stateManager
-      ? this.stateManager.getState("selectedNamespace")
-      : this.selectedElText;
-    // Fetch namespaces from the API
-    const cluster = this.stateManager.getState("selectedCluster");
-    const namespaces = await GetNamespaces(cluster);
 
-    if (!Array.isArray(namespaces) && !(namespaces.length > 0)) {
-      console.error("Invalid namespaces response:", namespaces);
-      return;
+  // === ОБРАБОТЧИКИ СОСТОЯНИЙ ===
+  handleLoadingState() {
+    this.listEl.innerHTML = `<div class="no-resources">Loading namespaces...</div>`;
+    this.header2ValueEl.textContent = "Loading...";
+
+    // Отключаем взаимодействие
+    this.listEl.style.pointerEvents = "none";
+
+    // Очищаем автообновление
+    this.cleanup();
+  }
+
+  handleLoadedState(newData) {
+    this.listEl.style.pointerEvents = "auto";
+
+    if (newData?.namespaces) {
+      this.updateUI(
+        newData.selectedNamespace,
+        newData.namespaces,
+        newData.searchValue,
+      );
     }
-    const options = [];
+  }
 
-    let selectedNamespace = currentSelection;
-    if (!selectedNamespace || !namespaces.includes(selectedNamespace)) {
-      selectedNamespace = await GetDefaultNamespace(cluster);
+  handleSelectedState(newData) {
+    this.listEl.style.pointerEvents = "auto";
 
-      // Обновляем StateManager если выбор изменился:
-      if (this.stateManager && selectedNamespace !== currentSelection) {
-        this.stateManager.setState("selectedNamespace", selectedNamespace);
-      }
+    if (newData?.selectedNamespace) {
+      this.updateUI(newData.selectedNamespace);
+      this.updateStateManager(newData.selectedNamespace);
     }
 
+    if (!this.currentPanelId) {
+      this.registerForUpdates(
+        `namespaces-${this.cluster}`,
+        () => this.update(),
+        5000,
+      );
+    }
+  }
+
+  handleErrorState(newData) {
+    this.listEl.innerHTML = `<div class="no-resources">Error loading namespaces</div>`;
+    this.header2ValueEl.textContent = "Error";
+
+    this.listEl.style.pointerEvents = "none";
+    this.cleanup();
+
+    if (newData?.error) {
+      console.error("Namespace panel error:", newData.error);
+    }
+  }
+
+  handleUpdatingState() {
+    // Показываем тонкий индикатор обновления (опционально)
+    this.showUpdateIndicator();
+  }
+
+  // === UI МЕТОДЫ ===
+  showUpdateIndicator() {
+    // Опционально: показать тонкий индикатор обновления
+    // Например, добавить класс или показать маленький спиннер
+  }
+
+  updateUI(selectedNamespace, namespaces = null, searchValue = null) {
     this.selectedElText = selectedNamespace;
-    // Add all namespaces
-    options.push(
-      ...namespaces.map(
+    this.header2ValueEl.textContent = selectedNamespace;
+
+    // Если переданы namespaces, перерендериваем весь список
+    if (namespaces) {
+      const options = namespaces.map(
         (namespace) =>
-          `<div class="${this.listItemClass} ${namespace === this.selectedElText ? "selected" : ""}">${namespace}</div>`,
-      ),
-    );
-    this.listEl.innerHTML = options.join("");
-    this.header2ValueEl.textContent = this.selectedElText;
+          `<div class="${this.listItemClass} ${namespace === selectedNamespace ? "selected" : ""}">${namespace}</div>`,
+      );
+      this.listEl.innerHTML = options.join("");
+    } else {
+      // Иначе просто обновляем выделение
+      const allItems = this.listEl.querySelectorAll(`.${this.listItemClass}`);
+      allItems.forEach((item) => {
+        item.classList.toggle(
+          "selected",
+          item.textContent === selectedNamespace,
+        );
+      });
+    }
+
     this.selectedEl = this.listEl.querySelector(".selected");
+
     if (searchValue && this.searchBoxEl) {
       this.searchBoxEl.value = searchValue;
       this.search();
     }
-    this.registerForUpdates(`namespaces-${cluster}`, () => this.update(), 5000);
+  }
+
+  // === ЛОГИКА ДАННЫХ ===
+  async fetchNamespaces() {
+    const namespaces = await GetNamespaces(this.cluster);
+
+    if (!Array.isArray(namespaces) || namespaces.length === 0) {
+      throw new Error("Invalid namespaces response");
+    }
+
+    return namespaces;
+  }
+
+  async resolveSelectedNamespace(namespaces) {
+    const currentSelection = this.stateManager.getState("selectedNamespace");
+
+    if (currentSelection && namespaces.includes(currentSelection)) {
+      return currentSelection;
+    }
+
+    return await GetDefaultNamespace(this.cluster);
+  }
+
+  updateStateManager(selectedNamespace) {
+    const currentSelection = this.stateManager.getState("selectedNamespace");
+    if (this.stateManager && selectedNamespace !== currentSelection) {
+      this.stateManager.setState("selectedNamespace", selectedNamespace);
+    }
+  }
+
+  // === ОСНОВНОЙ МЕТОД ===
+  async update() {
+    const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
+
+    const wasSelected = this.isSelected();
+    const wasUpdating = this.isUpdating();
+
+    if (this.isSelected()) {
+      this.setState(PANEL_STATES.UPDATING);
+    }
+
+    try {
+      const namespaces = await this.fetchNamespaces();
+      const selectedNamespace = await this.resolveSelectedNamespace(namespaces);
+
+      // Передаем данные в состояние
+      const stateData = {
+        namespaces,
+        selectedNamespace,
+        searchValue,
+      };
+
+      if (wasSelected || wasUpdating) {
+        this.setState(PANEL_STATES.SELECTED, stateData);
+      } else {
+        this.setState(PANEL_STATES.LOADED, stateData);
+        this.setState(PANEL_STATES.SELECTED, stateData);
+      }
+    } catch (error) {
+      this.setState(PANEL_STATES.ERROR, { error });
+    }
+  }
+
+  // === ВЗАИМОДЕЙСТВИЕ ===
+  select(event) {
+    const newSelection = super.select(event);
+    if (!newSelection) return;
+
+    this.stateManager?.setState("selectedNamespace", newSelection.textContent);
+    this.header2ValueEl.textContent = newSelection.textContent;
+    this.setState(PANEL_STATES.SELECTED);
+  }
+
+  updateSelectedNamespace(newNamespace) {
+    this.setState(PANEL_STATES.SELECTED, {
+      ...(this.currentData || {}), // сохраняем все предыдущие данные
+      selectedNamespace: newNamespace, // обновляем только namespace
+    });
   }
 
   clear() {

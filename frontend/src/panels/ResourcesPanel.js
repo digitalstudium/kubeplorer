@@ -109,13 +109,12 @@ export class ResourcesPanel extends Panel {
 
       const selectedNamespace = this.stateManager.getState("selectedNamespace");
       const apiResource = this.stateManager.getState("selectedApiResource");
-      const cluster = this.stateManager.getState("selectedCluster");
 
       const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
       for (const checkboxEl of allCheckboxItems) {
         if (checkboxEl.checked) {
           await DeleteResource(
-            cluster,
+            this.cluster,
             selectedNamespace,
             apiResource,
             checkboxEl.nextElementSibling.textContent,
@@ -201,7 +200,7 @@ export class ResourcesPanel extends Panel {
     );
     this.currentDependencyGraph = new DependencyGraph(
       contentContainer,
-      this.stateManager.getState("selectedCluster"),
+      this.cluster,
       this.stateManager.getState("selectedNamespace"),
       this.stateManager.getState("selectedApiResource"),
       resourceName,
@@ -237,7 +236,6 @@ export class ResourcesPanel extends Panel {
   }
 
   showCreateResourceModal() {
-    const cluster = this.stateManager.getState("selectedCluster");
     const modalContent = `<div class="editor"></div>`;
     new ModalWindow(
       this.tab,
@@ -247,7 +245,7 @@ export class ResourcesPanel extends Panel {
         " (" +
         Utils.translate("cluster") +
         " " +
-        cluster +
+        this.cluster +
         ")",
       Utils.translate("Create resource"),
       () => this.createNewResource(),
@@ -268,9 +266,8 @@ export class ResourcesPanel extends Panel {
 
   async createNewResource() {
     try {
-      const cluster = this.stateManager.getState("selectedCluster");
       const yamlContent = this.monacoModal.getValue(); // Get content from Monaco
-      await ApplyResource(cluster, yamlContent);
+      await ApplyResource(this.cluster, yamlContent);
       alert(`Resource created successfully.`);
     } catch (error) {
       console.error(`Failed to create resource:`, error);
@@ -282,13 +279,12 @@ export class ResourcesPanel extends Panel {
     console.log("ResourcesPanel update called");
     const apiResource = this.stateManager.getState("selectedApiResource");
     const selectedNamespace = this.stateManager.getState("selectedNamespace");
-    const cluster = this.stateManager.getState("selectedCluster");
-    console.log("Update params:", { cluster, selectedNamespace, apiResource });
-    if (!cluster) {
+    console.log("Update params:", { cluster: this.cluster, selectedNamespace, apiResource });
+    if (!this.cluster) {
       console.log("No cluster selected, skipping update");
       return;
     }
-    const panelId = `${cluster}-${selectedNamespace}-${apiResource}`;
+    const panelId = `${this.cluster}-${selectedNamespace}-${apiResource}`;
     if (this.currentPanelId === panelId) return;
 
     this.header1ValueEl.textContent = apiResource;
@@ -337,16 +333,15 @@ export class ResourcesPanel extends Panel {
     try {
       const selectedNamespace = this.stateManager.getState("selectedNamespace");
       const apiResource = this.stateManager.getState("selectedApiResource");
-      const cluster = this.stateManager.getState("selectedCluster"); // добавляем эту строку
 
-      if (!cluster) {
+      if (!this.cluster) {
         console.log("No cluster in updateHtml, aborting");
         return;
       }
 
       // Pass the signal to cancellable operations (e.g., fetch)
       const resources = await GetResourcesInNamespace(
-        cluster,
+        this.cluster,
         apiResource,
         selectedNamespace,
       );
@@ -458,12 +453,11 @@ export class ResourcesPanel extends Panel {
   }
 
   createResource(namespace, apiResource, resource) {
-    const cluster = this.stateManager.getState("selectedCluster");
     switch (apiResource) {
       case "pods":
         return new PodResource(
           this.tab,
-          cluster,
+          this.cluster,
           namespace,
           apiResource,
           resource,
@@ -471,7 +465,7 @@ export class ResourcesPanel extends Panel {
       case "secrets":
         return new SecretResource(
           this.tab,
-          cluster,
+          this.cluster,
           namespace,
           apiResource,
           resource,
@@ -479,7 +473,7 @@ export class ResourcesPanel extends Panel {
       default:
         return new Resource(
           this.tab,
-          cluster,
+          this.cluster,
           namespace,
           apiResource,
           resource,
