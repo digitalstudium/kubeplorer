@@ -50,17 +50,6 @@ export class NamespacesPanel extends StatefulPanel {
   }
 
   // === ОБРАБОТЧИКИ СОСТОЯНИЙ ===
-  handleLoadingState() {
-    this.listEl.innerHTML = `<div class="no-resources">Loading namespaces...</div>`;
-    this.header2ValueEl.textContent = "Loading...";
-
-    // Отключаем взаимодействие
-    this.listEl.style.pointerEvents = "none";
-
-    // Очищаем автообновление
-    this.cleanup();
-  }
-
   handleLoadedState(newData) {
     this.listEl.style.pointerEvents = "auto";
 
@@ -87,18 +76,6 @@ export class NamespacesPanel extends StatefulPanel {
         () => this.update(),
         5000,
       );
-    }
-  }
-
-  handleErrorState(newData) {
-    this.listEl.innerHTML = `<div class="no-resources">Error loading namespaces</div>`;
-    this.header2ValueEl.textContent = "Error";
-
-    this.listEl.style.pointerEvents = "none";
-    this.cleanup();
-
-    if (newData?.error) {
-      console.error("Namespace panel error:", newData.error);
     }
   }
 

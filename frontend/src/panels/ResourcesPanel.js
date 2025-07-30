@@ -18,29 +18,23 @@ export class ResourcesPanel extends Panel {
 
     // Добавьте подписки на изменения:
     if (this.stateManager) {
-      this.stateManager.subscribe("selectedNamespace", () => {
-        if (
-          this.isActiveTab() &&
-          this.stateManager.getState("selectedApiResource")
-        ) {
+      const handleStateChange = (otherStateKey) => () => {
+        if (this.isActiveTab() && this.stateManager.getState(otherStateKey)) {
           this.scheduleUpdate();
           this.deleteBtn.style.display = "none";
           this.toggleCheckboxes.checked = false;
           this.hideDependencyGraph();
         }
-      });
+      };
 
-      this.stateManager.subscribe("selectedApiResource", () => {
-        if (
-          this.isActiveTab() &&
-          this.stateManager.getState("selectedNamespace")
-        ) {
-          this.scheduleUpdate();
-          this.deleteBtn.style.display = "none";
-          this.toggleCheckboxes.checked = false;
-          this.hideDependencyGraph();
-        }
-      });
+      this.stateManager.subscribe(
+        "selectedNamespace",
+        handleStateChange("selectedApiResource"),
+      );
+      this.stateManager.subscribe(
+        "selectedApiResource",
+        handleStateChange("selectedNamespace"),
+      );
     }
     this.currentUpdateAbortController = null;
     this.updateInterval = null;
@@ -98,33 +92,27 @@ export class ResourcesPanel extends Panel {
     super.setupEventListeners();
 
     this.deleteBtn.addEventListener("click", async () => {
-      if (!confirm(`Are you sure you want to delete selected resources?`)) {
+      if (!confirm(`Are you sure you want to delete selected resources?`))
         return;
-      }
 
-      // Добавьте индикатор загрузки:
       Utils.showLoadingIndicator("Deleting resources", this.tab);
-
       this.deleteBtn.style.display = "none";
 
       const selectedNamespace = this.stateManager.getState("selectedNamespace");
       const apiResource = this.stateManager.getState("selectedApiResource");
+      const checkedBoxes = this.tab.querySelectorAll(".checkboxItem:checked");
 
-      const allCheckboxItems = this.tab.querySelectorAll(".checkboxItem");
-      for (const checkboxEl of allCheckboxItems) {
-        if (checkboxEl.checked) {
-          await DeleteResource(
-            this.cluster,
-            selectedNamespace,
-            apiResource,
-            checkboxEl.nextElementSibling.textContent,
-          );
-          checkboxEl.checked = false;
-        }
+      for (const checkboxEl of checkedBoxes) {
+        await DeleteResource(
+          this.cluster,
+          selectedNamespace,
+          apiResource,
+          checkboxEl.nextElementSibling.textContent,
+        );
+        checkboxEl.checked = false;
       }
       this.toggleCheckboxes.checked = false;
 
-      // Скройте индикатор и покажите результат:
       Utils.hideLoadingIndicator(this.tab);
       if (this.tab.classList.contains("active")) {
         alert(`Resources deleted successfully.`);
@@ -279,7 +267,11 @@ export class ResourcesPanel extends Panel {
     console.log("ResourcesPanel update called");
     const apiResource = this.stateManager.getState("selectedApiResource");
     const selectedNamespace = this.stateManager.getState("selectedNamespace");
-    console.log("Update params:", { cluster: this.cluster, selectedNamespace, apiResource });
+    console.log("Update params:", {
+      cluster: this.cluster,
+      selectedNamespace,
+      apiResource,
+    });
     if (!this.cluster) {
       console.log("No cluster selected, skipping update");
       return;
@@ -425,25 +417,14 @@ export class ResourcesPanel extends Panel {
   }
 
   updateExistingResource(item, resource, apiResource) {
-    // Simplified update logic
-    if (apiResource === "pods") {
-      this.updateElementContent(item, "readyStatus", resource.readyStatus);
-      this.updateElementContent(item, "status", resource.status);
-      this.updateElementContent(item, "restarts", resource.restarts);
-    } else if (apiResource === "deployments") {
-      this.updateElementContent(item, "ready", resource.ready);
-      this.updateElementContent(item, "upToDate", resource.upToDate);
-      this.updateElementContent(item, "available", resource.available);
-    }
-    this.updateElementContent(item, "age", resource.age);
-  }
-
-  updateElementContent(parent, selector, value) {
-    const element = parent.querySelector(`.resource-${selector}`);
-    if (element && element.textContent !== value) {
-      element.textContent = value;
-      element.dataset[selector] = value;
-    }
+    const columns = RESOURCE_COLUMNS[apiResource] || [];
+    [...columns.map((col) => col.key), "age"].forEach((field) => {
+      const element = item.querySelector(`.resource-${field}`);
+      if (element && element.textContent !== resource[field]) {
+        element.textContent = resource[field];
+        element.dataset[field] = resource[field];
+      }
+    });
   }
 
   addNewResource(namespace, apiResource, resource) {

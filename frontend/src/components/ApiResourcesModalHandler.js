@@ -8,6 +8,19 @@ export class ApiResourcesModalHandler {
     this.currentEditingGroup = null;
   }
 
+  createCheckboxList(items, checkedItems = [], prefix = "apiResource") {
+    return items
+      .map(
+        (item) => `
+          <div class="group-item">
+            <input type="checkbox" id="${prefix}-${item}" value="${item}" ${checkedItems.includes(item) ? "checked" : ""}>
+            <label for="${prefix}-${item}">${item}</label>
+          </div>
+        `,
+      )
+      .join("");
+  }
+
   // Добавляем в ApiResourcesModalHandler
   showCreateGroupModal(onUpdateCallback) {
     const modalContent = `
@@ -37,16 +50,9 @@ export class ApiResourcesModalHandler {
     );
 
     const uncategorizedList = document.getElementById("uncategorizedList");
-    uncategorizedList.innerHTML = this.apiResourcesGroups.uncategorized
-      .map(
-        (apiResource) => `
-          <div class="group-item">
-              <input type="checkbox" id="apiResource-${apiResource}" value="${apiResource}">
-              <label for="apiResource-${apiResource}">${apiResource}</label>
-          </div>
-      `,
-      )
-      .join("");
+    uncategorizedList.innerHTML = this.createCheckboxList(
+      this.apiResourcesGroups.uncategorized,
+    );
 
     // Focus on the newGroupName input
     document.getElementById("newGroupName").focus();
@@ -119,17 +125,11 @@ export class ApiResourcesModalHandler {
     ]);
 
     // Create checkboxes for all resource apiResources
-    resourceList.innerHTML = Array.from(allApiResources)
-      .map(
-        (apiResource) => `
-          <div class="group-item">
-              <input type="checkbox" id="edit-apiResource-${apiResource}" value="${apiResource}"
-                     ${currentApiResources.includes(apiResource) ? "checked" : ""}>
-              <label for="edit-apiResource-${apiResource}">${apiResource}</label>
-          </div>
-      `,
-      )
-      .join("");
+    resourceList.innerHTML = this.createCheckboxList(
+      Array.from(allApiResources),
+      currentApiResources,
+      "edit-apiResource",
+    );
 
     document.getElementById("editGroupName").focus();
   }

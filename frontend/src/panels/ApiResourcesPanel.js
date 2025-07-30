@@ -72,12 +72,6 @@ export class ApiResourcesPanel extends StatefulPanel {
   }
 
   // === ОБРАБОТЧИКИ СОСТОЯНИЙ ===
-  handleLoadingState() {
-    this.listEl.innerHTML = `<div class="no-resources">Loading API resources...</div>`;
-    this.header2ValueEl.textContent = "Loading...";
-    this.listEl.style.pointerEvents = "none";
-    this.cleanup();
-  }
 
   handleLoadedState(newData) {
     this.listEl.style.pointerEvents = "auto";
@@ -121,9 +115,10 @@ export class ApiResourcesPanel extends StatefulPanel {
   handleGroupsChangedState(newData) {
     // Обновляем только UI групп, не загружая данные заново
     if (newData && newData.apiResources) {
-      this.rebuildGroupedList(
+      this.renderer.rebuildGroupedList(
         newData.selectedApiResource,
         newData.apiResources,
+        apiResourcesGroups,
       );
       if (newData.searchValue && this.searchBoxEl) {
         this.searchBoxEl.value = newData.searchValue;
@@ -132,17 +127,6 @@ export class ApiResourcesPanel extends StatefulPanel {
     }
     // Возвращаемся в SELECTED
     this.setState(this.PANEL_STATES.SELECTED, newData);
-  }
-
-  handleErrorState(newData) {
-    this.listEl.innerHTML = `<div class="no-resources">Error loading API resources</div>`;
-    this.header2ValueEl.textContent = "Error";
-    this.listEl.style.pointerEvents = "none";
-    this.cleanup();
-
-    if (newData?.error) {
-      console.error("API resources panel error:", newData.error);
-    }
   }
 
   handleUpdatingState() {

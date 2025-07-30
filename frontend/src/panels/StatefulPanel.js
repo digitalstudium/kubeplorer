@@ -40,6 +40,23 @@ export class StatefulPanel extends Panel {
     return true;
   }
 
+  handleLoadingState() {
+    this.listEl.innerHTML = `<div class="no-resources">Loading ${this.constructor.name.replace("Panel", "").toLowerCase()}...</div>`;
+    this.header2ValueEl.textContent = "Loading...";
+    this.listEl.style.pointerEvents = "none";
+    this.cleanup();
+  }
+
+  handleErrorState(newData) {
+    this.listEl.innerHTML = `<div class="no-resources">Error loading ${this.constructor.name.replace("Panel", "").toLowerCase()}</div>`;
+    this.header2ValueEl.textContent = "Error";
+    this.listEl.style.pointerEvents = "none";
+    this.cleanup();
+    if (newData?.error) {
+      console.error(`${this.constructor.name} error:`, newData.error);
+    }
+  }
+
   // Generic сравнение данных
   isDataEqual(oldData, newData) {
     // Если оба null/undefined
