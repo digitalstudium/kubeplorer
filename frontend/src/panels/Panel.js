@@ -82,7 +82,15 @@ export class Panel {
         if (this.currentPanelId) {
           updateManager.unregister(this.currentPanelId);
         }
-        updateManager.register(panelId, updateCallback, intervalMs);
+        updateManager.register(
+          panelId,
+          () => {
+            if (this.cluster) {
+              updateCallback();
+            }
+          },
+          intervalMs,
+        );
         this.currentPanelId = panelId;
       }
     }

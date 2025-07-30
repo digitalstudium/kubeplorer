@@ -1,5 +1,5 @@
 import { GetNamespaces, GetDefaultNamespace } from "../../wailsjs/go/main/App";
-import { StatefulPanel, PANEL_STATES } from "./StatefulPanel.js";
+import { StatefulPanel } from "./StatefulPanel.js";
 
 export class NamespacesPanel extends StatefulPanel {
   constructor(name, container, tab, stateManager = null) {
@@ -18,32 +18,32 @@ export class NamespacesPanel extends StatefulPanel {
   // === ОБРАБОТКА СОСТОЯНИЙ ===
   onStateChange(oldState, newState, newData, oldData) {
     switch (newState) {
-      case PANEL_STATES.LOADING:
+      case this.PANEL_STATES.LOADING:
         this.handleLoadingState();
         break;
 
-      case PANEL_STATES.LOADED:
+      case this.PANEL_STATES.LOADED:
         this.handleLoadedState(newData);
         break;
 
-      case PANEL_STATES.SELECTED:
+      case this.PANEL_STATES.SELECTED:
         this.handleSelectedState(newData);
 
         // Сравниваем старые и новые данные
         if (
-          oldState === PANEL_STATES.LOADED ||
-          (oldState === PANEL_STATES.SELECTED &&
+          oldState === this.PANEL_STATES.LOADED ||
+          (oldState === this.PANEL_STATES.SELECTED &&
             newData?.selectedNamespace !== oldData?.selectedNamespace)
         ) {
           this.scrollToSelected();
         }
         break;
 
-      case PANEL_STATES.UPDATING:
+      case this.PANEL_STATES.UPDATING:
         this.handleUpdatingState();
         break;
 
-      case PANEL_STATES.ERROR:
+      case this.PANEL_STATES.ERROR:
         this.handleErrorState(newData);
         break;
     }
@@ -175,11 +175,16 @@ export class NamespacesPanel extends StatefulPanel {
   async update() {
     const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
 
+    if (!this.cluster) {
+      console.log("No cluster selected, skipping update");
+      return;
+    }
+
     const wasSelected = this.isSelected();
     const wasUpdating = this.isUpdating();
 
     if (this.isSelected()) {
-      this.setState(PANEL_STATES.UPDATING);
+      this.setState(this.PANEL_STATES.UPDATING);
     }
 
     try {
@@ -194,13 +199,13 @@ export class NamespacesPanel extends StatefulPanel {
       };
 
       if (wasSelected || wasUpdating) {
-        this.setState(PANEL_STATES.SELECTED, stateData);
+        this.setState(this.PANEL_STATES.SELECTED, stateData);
       } else {
-        this.setState(PANEL_STATES.LOADED, stateData);
-        this.setState(PANEL_STATES.SELECTED, stateData);
+        this.setState(this.PANEL_STATES.LOADED, stateData);
+        this.setState(this.PANEL_STATES.SELECTED, stateData);
       }
     } catch (error) {
-      this.setState(PANEL_STATES.ERROR, { error });
+      this.setState(this.PANEL_STATES.ERROR, { error });
     }
   }
 
@@ -211,11 +216,11 @@ export class NamespacesPanel extends StatefulPanel {
 
     this.stateManager?.setState("selectedNamespace", newSelection.textContent);
     this.header2ValueEl.textContent = newSelection.textContent;
-    this.setState(PANEL_STATES.SELECTED);
+    this.setState(this.PANEL_STATES.SELECTED);
   }
 
   updateSelectedNamespace(newNamespace) {
-    this.setState(PANEL_STATES.SELECTED, {
+    this.setState(this.PANEL_STATES.SELECTED, {
       ...(this.currentData || {}), // сохраняем все предыдущие данные
       selectedNamespace: newNamespace, // обновляем только namespace
     });

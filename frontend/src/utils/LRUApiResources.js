@@ -76,6 +76,45 @@ export class LRUApiResources {
     this.saveToStorage();
   }
 
+  updateFrequentApiResources(selectedElText, onResourceSelect) {
+    const frequentContainer = document.getElementById("frequentApiResources");
+    const frequentItems = document.getElementById("frequentItems");
+
+    if (!frequentContainer || !frequentItems) return;
+
+    const items = this.getItems();
+
+    if (items.length === 0) {
+      frequentContainer.style.display = "none";
+      return;
+    }
+
+    frequentContainer.style.display = "flex";
+    frequentItems.innerHTML = "";
+
+    items.forEach((apiResource) => {
+      const item = document.createElement("div");
+      item.className = "frequent-item";
+      item.textContent = apiResource;
+
+      // Выделяем текущий выбранный ресурс
+      if (apiResource === selectedElText) {
+        item.classList.add("selected");
+      }
+
+      item.addEventListener("click", () => {
+        onResourceSelect(apiResource, false); // false = не добавлять в LRU
+      });
+
+      frequentItems.appendChild(item);
+    });
+  }
+
+  addAndUpdate(apiResource, selectedElText, onResourceSelect) {
+    this.add(apiResource);
+    this.updateFrequentApiResources(selectedElText, onResourceSelect);
+  }
+
   // Метод для очистки только счетчиков (если нужно)
   clearAccessCounts() {
     this.accessCounts = {};

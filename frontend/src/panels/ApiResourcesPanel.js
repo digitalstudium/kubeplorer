@@ -1,18 +1,17 @@
 import { GetApiResources } from "../../wailsjs/go/main/App";
-import { GroupModalWindow } from "../windows/GroupModalWindow";
-import { Panel } from "./Panel";
-import { Utils } from "../utils/Utils";
+import { StatefulPanel } from "./StatefulPanel.js";
+import { ApiResourcesModalHandler } from "../components/ApiResourcesModalHandler.js";
+import { ApiResourcesRenderer } from "../components/ApiResourcesRenderer.js";
 import { LRUApiResources } from "../utils/LRUApiResources.js";
 import { defaultApiResourcesGroups } from "../utils/Config";
 
-let currentEditingGroup = null;
 export let apiResourcesGroups = defaultApiResourcesGroups;
 const storedGroups = localStorage.getItem("resourceGroups");
 if (storedGroups) {
   apiResourcesGroups = JSON.parse(storedGroups);
 }
 
-export class ApiResourcesPanel extends Panel {
+export class ApiResourcesPanel extends StatefulPanel {
   constructor(name, container, tab, stateManager = null) {
     super(name, container, tab, stateManager);
     this.currentPanelId = null;
@@ -20,15 +19,176 @@ export class ApiResourcesPanel extends Panel {
     this.buttonEl = document.querySelector(".create-group-btn");
     this.buttonFunction = () => this.showCreateGroupModal();
     this.lruApiResources = new LRUApiResources();
+    this.PANEL_STATES = {
+      ...this.PANEL_STATES,
+      GROUPS_CHANGED: "GROUPS_CHANGED",
+    };
+    this.modalHandler = new ApiResourcesModalHandler(
+      this.tab,
+      apiResourcesGroups,
+    );
+
+    this.renderer = new ApiResourcesRenderer(
+      this.listEl,
+      this.listItemClass,
+      (action, groupName) => this[action](groupName),
+    );
+
+    // Подписываемся на изменения selectedApiResource
+    if (this.stateManager) {
+      this.stateManager.subscribe("selectedApiResource", (newApiResource) => {
+        this.updateSelectedApiResource(newApiResource);
+      });
+    }
   }
-  async update() {
-    const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
-    // Fetch resource apiResources from the API
-    let apiResourcesMap = {};
-    try {
-      apiResourcesMap = await GetApiResources(this.cluster);
-    } catch (error) {
-      console.warn("Cannot load api resources:", error);
+
+  // === ОБРАБОТКА СОСТОЯНИЙ ===
+  onStateChange(oldState, newState, newData, oldData) {
+    switch (newState) {
+      case this.PANEL_STATES.LOADING:
+        this.handleLoadingState();
+        break;
+
+      case this.PANEL_STATES.LOADED:
+        this.handleLoadedState(newData);
+        break;
+
+      case this.PANEL_STATES.SELECTED:
+        this.handleSelectedState(newData, oldState, oldData);
+        break;
+
+      case this.PANEL_STATES.UPDATING:
+        this.handleUpdatingState();
+        break;
+
+      case this.PANEL_STATES.GROUPS_CHANGED:
+        this.handleGroupsChangedState(newData);
+        break;
+
+      case this.PANEL_STATES.ERROR:
+        this.handleErrorState(newData);
+        break;
+    }
+  }
+
+  // === ОБРАБОТЧИКИ СОСТОЯНИЙ ===
+  handleLoadingState() {
+    this.listEl.innerHTML = `<div class="no-resources">Loading API resources...</div>`;
+    this.header2ValueEl.textContent = "Loading...";
+    this.listEl.style.pointerEvents = "none";
+    this.cleanup();
+  }
+
+  handleLoadedState(newData) {
+    this.listEl.style.pointerEvents = "auto";
+
+    if (newData?.apiResources) {
+      this.updateUI(
+        newData.selectedApiResource,
+        newData.apiResources,
+        newData.searchValue,
+      );
+    }
+  }
+
+  handleSelectedState(newData, oldState, oldData) {
+    this.listEl.style.pointerEvents = "auto";
+
+    if (newData?.selectedApiResource) {
+      this.updateUI(newData.selectedApiResource);
+      this.updateStateManager(newData.selectedApiResource);
+    }
+
+    if (
+      oldState === this.PANEL_STATES.LOADED ||
+      (oldState === this.PANEL_STATES.SELECTED &&
+        newData?.selectedApiResource !== oldData?.selectedApiResource)
+    ) {
+      this.scrollToSelected();
+    } else {
+      console.log("No scroll needed");
+    }
+
+    if (!this.currentPanelId) {
+      this.registerForUpdates(
+        `apiresources-${this.cluster}`,
+        () => this.update(),
+        10000,
+      );
+    }
+  }
+
+  handleGroupsChangedState(newData) {
+    // Обновляем только UI групп, не загружая данные заново
+    if (newData && newData.apiResources) {
+      this.rebuildGroupedList(
+        newData.selectedApiResource,
+        newData.apiResources,
+      );
+      if (newData.searchValue && this.searchBoxEl) {
+        this.searchBoxEl.value = newData.searchValue;
+        this.search();
+      }
+    }
+    // Возвращаемся в SELECTED
+    this.setState(this.PANEL_STATES.SELECTED, newData);
+  }
+
+  handleErrorState(newData) {
+    this.listEl.innerHTML = `<div class="no-resources">Error loading API resources</div>`;
+    this.header2ValueEl.textContent = "Error";
+    this.listEl.style.pointerEvents = "none";
+    this.cleanup();
+
+    if (newData?.error) {
+      console.error("API resources panel error:", newData.error);
+    }
+  }
+
+  handleUpdatingState() {
+    this.showUpdateIndicator();
+  }
+
+  // === UI МЕТОДЫ ===
+  showUpdateIndicator() {
+    // Опционально: показать тонкий индикатор обновления
+  }
+
+  updateUI(selectedApiResource, apiResources = null, searchValue = null) {
+    this.selectedElText = selectedApiResource;
+    this.header2ValueEl.textContent = selectedApiResource;
+
+    // Если переданы apiResources, перерендериваем весь список
+    if (apiResources) {
+      this.renderer.rebuildGroupedList(
+        selectedApiResource,
+        apiResources,
+        apiResourcesGroups,
+      );
+    } else {
+      // Иначе просто обновляем выделение
+      this.renderer.updateSelection(selectedApiResource);
+    }
+
+    this.selectedEl = this.listEl.querySelector(".selected");
+
+    if (searchValue && this.searchBoxEl) {
+      this.searchBoxEl.value = searchValue;
+      this.search();
+    }
+
+    this.lruApiResources.updateFrequentApiResources(
+      this.selectedElText,
+      (resource, addToLRU) => this.selectApiResourceByName(resource, addToLRU),
+    );
+  }
+
+  // === ЛОГИКА ДАННЫХ ===
+  async fetchApiResources() {
+    const apiResourcesMap = await GetApiResources(this.cluster);
+
+    if (!apiResourcesMap || typeof apiResourcesMap !== "object") {
+      throw new Error("Invalid API resources response");
     }
 
     // Initialize a Set to store all unique resource apiResources
@@ -40,80 +200,103 @@ export class ApiResourcesPanel extends Panel {
       group.forEach((resource) => allApiResources.add(resource.Name));
     });
 
-    // Convert the Set to an array
-    allApiResources = Array.from(allApiResources);
+    return Array.from(allApiResources);
+  }
 
-    const currentApiResources = this.getAllCurrentApiResources();
-    if (this.arraysEqual(currentApiResources.sort(), allApiResources.sort())) {
-      // Данные не изменились, только регистрируем обновления и выходим
-      this.registerForUpdates(
-        `apiresources-${this.cluster}`,
-        () => this.update(),
-        10000,
-      );
+  resolveSelectedApiResource(apiResources) {
+    const currentSelection = this.stateManager?.getState("selectedApiResource");
+
+    if (currentSelection && apiResources.includes(currentSelection)) {
+      return currentSelection;
+    }
+
+    // Fallback to pods or first available
+    return apiResources.includes("pods") ? "pods" : apiResources[0] || "pods";
+  }
+
+  updateStateManager(selectedApiResource) {
+    const currentSelection = this.stateManager?.getState("selectedApiResource");
+    if (this.stateManager && selectedApiResource !== currentSelection) {
+      this.stateManager.setState("selectedApiResource", selectedApiResource);
+    }
+  }
+
+  // === ОСНОВНОЙ МЕТОД ===
+  async update() {
+    const searchValue = this.searchBoxEl ? this.searchBoxEl.value : "";
+
+    if (!this.cluster) {
+      console.log("No cluster selected, skipping update");
       return;
     }
 
-    // Проверяем, что текущий выбор все еще существует:
-    const currentApiResource = this.stateManager
-      ? this.stateManager.getState("selectedApiResource")
-      : this.selectedElText;
+    const wasSelected = this.isSelected();
+    const wasUpdating = this.isUpdating();
 
-    if (currentApiResource && !allApiResources.includes(currentApiResource)) {
-      this.selectedElText = "pods";
-
-      if (this.stateManager) {
-        this.stateManager.setState("selectedApiResource", this.selectedElText);
-      }
-    } else if (currentApiResource) {
-      this.selectedElText = currentApiResource;
+    if (this.isSelected()) {
+      this.setState(this.PANEL_STATES.UPDATING);
     }
 
-    // Update the uncategorized list with the fetched apiResources
-    apiResourcesGroups.uncategorized = allApiResources.filter(
-      (apiResource) =>
-        !Object.values(apiResourcesGroups.groups).flat().includes(apiResource),
-    );
+    try {
+      const apiResources = await this.fetchApiResources();
+      const selectedApiResource = this.resolveSelectedApiResource(apiResources);
 
-    // Update the UI
-    this.listEl.innerHTML = "";
-
-    // Add categorized sections
-    Object.entries(apiResourcesGroups.groups).forEach(
-      ([group, groupApiResources]) => {
-        if (groupApiResources.length > 0) {
-          const groupSection = this.createGroupSection(
-            group,
-            groupApiResources,
-          );
-          this.listEl.appendChild(groupSection);
-        }
-      },
-    );
-
-    // Add uncategorized section
-    if (apiResourcesGroups.uncategorized.length > 0) {
-      const uncategorizedSection = this.createGroupSection(
-        Utils.translate("Uncategorized"),
-        apiResourcesGroups.uncategorized,
+      // Проверяем, изменились ли данные
+      const currentApiResources = this.getAllCurrentApiResources();
+      const hasDataChanged = !this.arraysEqual(
+        currentApiResources.sort(),
+        apiResources.sort(),
       );
-      this.listEl.appendChild(uncategorizedSection);
+
+      // Передаем данные в состояние
+      const stateData = {
+        apiResources,
+        selectedApiResource,
+        searchValue,
+        hasDataChanged,
+      };
+
+      if (wasSelected || wasUpdating) {
+        this.setState(this.PANEL_STATES.SELECTED, stateData);
+      } else {
+        this.setState(this.PANEL_STATES.LOADED, stateData);
+        this.setState(this.PANEL_STATES.SELECTED, stateData);
+      }
+    } catch (error) {
+      this.setState(this.PANEL_STATES.ERROR, { error });
     }
-    this.selectedEl = this.listEl.querySelector(".selected");
-    this.header2ValueEl.textContent = this.selectedElText;
-    if (searchValue && this.searchBoxEl) {
-      this.searchBoxEl.value = searchValue;
-      this.search();
-    }
-    this.registerForUpdates(
-      `apiresources-${this.cluster}`,
-      () => this.update(),
-      10000,
-    );
-    // Save groups after update
-    GroupModalWindow.saveGroups(apiResourcesGroups);
-    this.updateFrequentApiResources();
   }
+
+  // === ВЗАИМОДЕЙСТВИЕ ===
+  select(event) {
+    const newSelection = super.select(event);
+    if (!newSelection) {
+      return;
+    }
+
+    const selectedApiResource = newSelection.textContent;
+
+    this.lruApiResources.addAndUpdate(
+      selectedApiResource,
+      this.selectedElText,
+      (resource, addToLRU) => this.selectApiResourceByName(resource, addToLRU),
+    );
+
+    if (this.stateManager) {
+      this.stateManager.setState("selectedApiResource", selectedApiResource);
+    }
+    this.header2ValueEl.textContent = selectedApiResource;
+    this.setState(this.PANEL_STATES.SELECTED);
+  }
+
+  updateSelectedApiResource(newApiResource) {
+    this.setState(this.PANEL_STATES.SELECTED, {
+      ...(this.currentData || {}),
+      selectedApiResource: newApiResource,
+    });
+  }
+
+  // === ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ===
 
   // Получает все текущие API ресурсы из DOM
   getAllCurrentApiResources() {
@@ -124,306 +307,6 @@ export class ApiResourcesPanel extends Panel {
   // Сравнивает два массива
   arraysEqual(a, b) {
     return a.length === b.length && a.every((val, i) => val === b[i]);
-  }
-
-  createGroupSection(groupName, apiResources) {
-    const section = Utils.createEl("group-section");
-
-    // Create header with caret and title
-    const header = Utils.createEl("group-header");
-
-    const titleContainer = document.createElement("div");
-
-    const caret = Utils.createEl("caret", "", "span");
-    caret.innerHTML = "&#9662;";
-
-    const title = Utils.createEl("", groupName, "span");
-
-    titleContainer.append(caret, title);
-    header.append(titleContainer);
-
-    if (groupName !== Utils.translate("Uncategorized")) {
-      const controls = Utils.createEl("group-controls");
-      const actionButtonsContainer = Utils.createEl("action-buttons");
-      const actions = {
-        Edit: () => this.showEditGroupModal(groupName),
-        Delete: () => this.deleteGroup(groupName),
-      };
-      for (const action in actions) {
-        actionButtonsContainer.append(
-          Utils.createActionBtn(action, groupName, actions[action]),
-        );
-      }
-      controls.append(actionButtonsContainer);
-      header.append(controls);
-    }
-
-    // Create content
-    const content = Utils.createEl("group-content");
-    content.innerHTML = apiResources
-      .map(
-        (apiResource) =>
-          `<div class="${this.listItemClass} ${apiResource === this.selectedElText ? "selected" : ""}" data-api-resource="${apiResource}">${apiResource}</div>`,
-      )
-      .join("");
-
-    header.classList.add("collapsed");
-    content.classList.add("collapsed");
-
-    header.addEventListener("click", (e) => {
-      if (!e.target.closest(".group-controls")) {
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      }
-    });
-
-    section.append(header, content);
-    return section;
-  }
-
-  showCreateGroupModal() {
-    const modalContent = `
-      <input
-        type="text"
-        id="newGroupName"
-        placeholder="${Utils.translate("Group name")}"
-      />
-      <input
-        type="text"
-        class="search-input"
-        id="createSearchInput"
-        placeholder="${Utils.translate("Search")}..."
-      />
-      <div class="group-list" id="uncategorizedList"></div>
-      `;
-
-    new GroupModalWindow(
-      this.tab,
-      modalContent,
-      "modal-content",
-      "Group creation",
-      "Create",
-      () => this.createGroup(),
-      "createSearchInput",
-      "uncategorizedList",
-    );
-
-    const uncategorizedList = document.getElementById("uncategorizedList");
-    uncategorizedList.innerHTML = apiResourcesGroups.uncategorized
-      .map(
-        (apiResource) => `
-          <div class="group-item">
-              <input type="checkbox" id="apiResource-${apiResource}" value="${apiResource}">
-              <label for="apiResource-${apiResource}">${apiResource}</label>
-          </div>
-      `,
-      )
-      .join("");
-
-    // Focus on the newGroupName input
-    document.getElementById("newGroupName").focus();
-  }
-
-  showEditGroupModal(groupName) {
-    currentEditingGroup = groupName;
-    const modalContent = `
-      <input
-        type="text"
-        id="editGroupName"
-        placeholder="${Utils.translate("Group name")}"
-      />
-      <input
-        type="text"
-        class="search-input"
-        id="editSearchInput"
-        placeholder="${Utils.translate("Search")}..."
-      />
-      <div class="group-list" id="editResourceList"></div>
-      `;
-
-    new GroupModalWindow(
-      this.tab,
-      modalContent,
-      "modal-content",
-      "Edit group",
-      "Edit",
-      () => this.updateGroup(),
-      "editSearchInput",
-      "editResourceList",
-    );
-
-    const nameInput = document.getElementById("editGroupName");
-    const resourceList = document.getElementById("editResourceList");
-
-    // Set current group name
-    nameInput.value = groupName;
-
-    // Current group's apiResources
-    const currentApiResources = apiResourcesGroups.groups[groupName] || [];
-    // Get all available resource apiResources
-    const allApiResources = new Set([
-      ...currentApiResources,
-      ...apiResourcesGroups.uncategorized,
-    ]);
-
-    // Create checkboxes for all resource apiResources
-    resourceList.innerHTML = Array.from(allApiResources)
-      .map(
-        (apiResource) => `
-          <div class="group-item">
-              <input type="checkbox" id="edit-apiResource-${apiResource}" value="${apiResource}"
-                     ${currentApiResources.includes(apiResource) ? "checked" : ""}>
-              <label for="edit-apiResource-${apiResource}">${apiResource}</label>
-          </div>
-      `,
-      )
-      .join("");
-
-    document.getElementById("editGroupName").focus();
-  }
-
-  createGroup() {
-    const name = document.getElementById("newGroupName").value;
-    if (name) {
-      const selectedApiResources = Array.from(
-        document.querySelectorAll(
-          '#uncategorizedList input[type="checkbox"]:checked',
-        ),
-      ).map((checkbox) => checkbox.value);
-
-      apiResourcesGroups.groups[name] = selectedApiResources;
-      apiResourcesGroups.uncategorized =
-        apiResourcesGroups.uncategorized.filter(
-          (apiResource) => !selectedApiResources.includes(apiResource),
-        );
-      this.update();
-    }
-  }
-  deleteGroup(groupName) {
-    if (confirm(`Are you sure you want to delete the group "${groupName}"?`)) {
-      // Move all apiResources from the group back to uncategorized
-      const groupApiResources = apiResourcesGroups.groups[groupName] || [];
-      apiResourcesGroups.uncategorized.push(...groupApiResources);
-
-      // Delete the group
-      delete apiResourcesGroups.groups[groupName];
-
-      // Update the UI
-      this.update();
-    }
-  }
-
-  updateGroup() {
-    const newName = document.getElementById("editGroupName").value;
-    const selectedApiResources = Array.from(
-      document.querySelectorAll(
-        '#editResourceList input[type="checkbox"]:checked',
-      ),
-    ).map((checkbox) => checkbox.value);
-
-    if (newName && currentEditingGroup) {
-      // Get current apiResources in the group
-      const currentApiResources =
-        apiResourcesGroups.groups[currentEditingGroup] || [];
-
-      // Find apiResources that were unchecked (removed from group)
-      const removedApiResources = currentApiResources.filter(
-        (apiResource) => !selectedApiResources.includes(apiResource),
-      );
-
-      // Find newly selected apiResources (not in current group)
-      const newlySelectedApiResources = selectedApiResources.filter(
-        (apiResource) => !currentApiResources.includes(apiResource),
-      );
-
-      // Move removed apiResources to uncategorized
-      apiResourcesGroups.uncategorized.push(...removedApiResources);
-
-      // Remove newly selected apiResources from uncategorized and other groups
-      Object.entries(apiResourcesGroups.groups).forEach(
-        ([group, apiResources]) => {
-          if (group !== currentEditingGroup) {
-            apiResourcesGroups.groups[group] = apiResources.filter(
-              (apiResource) => !newlySelectedApiResources.includes(apiResource),
-            );
-          }
-        },
-      );
-      apiResourcesGroups.uncategorized =
-        apiResourcesGroups.uncategorized.filter(
-          (apiResource) => !newlySelectedApiResources.includes(apiResource),
-        );
-
-      // Update or rename the group
-      if (newName !== currentEditingGroup) {
-        delete apiResourcesGroups.groups[currentEditingGroup];
-      }
-      apiResourcesGroups.groups[newName] = selectedApiResources;
-
-      this.update();
-      currentEditingGroup = null;
-    }
-  }
-
-  select(event) {
-    const newSelection = super.select(event);
-    if (!newSelection) {
-      return;
-    }
-
-    const selectedApiResource = newSelection.textContent;
-
-    this.addToLRUAndUpdate(selectedApiResource);
-
-    if (this.stateManager) {
-      this.stateManager.setState(
-        "selectedApiResource",
-        newSelection.textContent,
-      );
-    }
-    this.header2ValueEl.textContent = newSelection.textContent;
-  }
-
-  addToLRUAndUpdate(apiResource) {
-    // Добавляем в LRU
-    this.lruApiResources.add(apiResource);
-
-    // Обновляем частые ресурсы в UI
-    this.updateFrequentApiResources();
-  }
-
-  updateFrequentApiResources() {
-    const frequentContainer = document.getElementById("frequentApiResources");
-    const frequentItems = document.getElementById("frequentItems");
-
-    if (!frequentContainer || !frequentItems) return;
-
-    const items = this.lruApiResources.getItems();
-
-    if (items.length === 0) {
-      frequentContainer.style.display = "none";
-      return;
-    }
-
-    frequentContainer.style.display = "flex";
-    frequentItems.innerHTML = "";
-
-    items.forEach((apiResource) => {
-      const item = document.createElement("div");
-      item.className = "frequent-item";
-      item.textContent = apiResource;
-
-      // Выделяем текущий выбранный ресурс
-      if (apiResource === this.selectedElText) {
-        item.classList.add("selected");
-      }
-
-      item.addEventListener("click", () => {
-        this.selectApiResourceByName(apiResource, false); // false = не добавлять в LRU
-      });
-
-      frequentItems.appendChild(item);
-    });
   }
 
   selectApiResourceByName(apiResourceName, addToLRU = true) {
@@ -446,10 +329,18 @@ export class ApiResourcesPanel extends Panel {
 
       // Добавляем в LRU только если это требуется
       if (addToLRU) {
-        this.addToLRUAndUpdate(apiResourceName);
+        this.lruApiResources.addAndUpdate(
+          apiResourceName,
+          this.selectedElText,
+          (resource, addToLRU) =>
+            this.selectApiResourceByName(resource, addToLRU),
+        );
       } else {
-        // Просто обновляем UI без изменения порядка в LRU
-        this.updateFrequentApiResources();
+        this.lruApiResources.updateFrequentApiResources(
+          this.selectedElText,
+          (resource, addToLRU) =>
+            this.selectApiResourceByName(resource, addToLRU),
+        );
       }
 
       // Обновляем StateManager
@@ -507,6 +398,40 @@ export class ApiResourcesPanel extends Panel {
         group.querySelector(".group-content").classList.add("collapsed");
       }
     });
+  }
+
+  showCreateGroupModal() {
+    this.modalHandler.showCreateGroupModal(() => {
+      const currentData = this.getStateData();
+      this.setState(this.PANEL_STATES.GROUPS_CHANGED, currentData);
+    });
+  }
+
+  showEditGroupModal(groupName) {
+    this.modalHandler.showEditGroupModal(groupName, () => {
+      const currentData = this.getStateData();
+      this.setState(this.PANEL_STATES.GROUPS_CHANGED, currentData);
+    });
+  }
+
+  deleteGroup(groupName) {
+    this.modalHandler.deleteGroup(groupName, () => {
+      const currentData = this.getStateData();
+      this.setState(this.PANEL_STATES.GROUPS_CHANGED, currentData);
+    });
+  }
+
+  scrollToSelected() {
+    if (this.selectedEl) {
+      // Сначала разворачиваем группу
+      this.expandGroupForResource(this.selectedElText);
+
+      // Затем скроллим
+      this.selectedEl.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
   }
 
   clear() {

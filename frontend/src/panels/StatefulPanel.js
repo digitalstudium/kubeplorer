@@ -1,18 +1,18 @@
 import { Panel } from "./Panel.js";
 
-export const PANEL_STATES = {
-  LOADING: "LOADING",
-  LOADED: "LOADED",
-  SELECTED: "SELECTED",
-  UPDATING: "UPDATING",
-  ERROR: "ERROR",
-};
-
 export class StatefulPanel extends Panel {
   constructor(name, container, tab, stateManager = null) {
     super(name, container, tab, stateManager);
 
-    this.currentState = PANEL_STATES.LOADING;
+    this.PANEL_STATES = {
+      LOADING: "LOADING",
+      LOADED: "LOADED",
+      SELECTED: "SELECTED",
+      UPDATING: "UPDATING",
+      ERROR: "ERROR",
+    };
+
+    this.currentState = this.PANEL_STATES.LOADING;
     this.currentData = null; // сохраняем данные состояния
     this.stateListeners = [];
 
@@ -72,19 +72,19 @@ export class StatefulPanel extends Panel {
 
   // Проверки состояний
   isLoading() {
-    return this.currentState === PANEL_STATES.LOADING;
+    return this.currentState === this.PANEL_STATES.LOADING;
   }
   isLoaded() {
-    return this.currentState === PANEL_STATES.LOADED;
+    return this.currentState === this.PANEL_STATES.LOADED;
   }
   isSelected() {
-    return this.currentState === PANEL_STATES.SELECTED;
+    return this.currentState === this.PANEL_STATES.SELECTED;
   }
   isUpdating() {
-    return this.currentState === PANEL_STATES.UPDATING;
+    return this.currentState === this.PANEL_STATES.UPDATING;
   }
   isError() {
-    return this.currentState === PANEL_STATES.ERROR;
+    return this.currentState === this.PANEL_STATES.ERROR;
   }
 
   // Удобные проверки
