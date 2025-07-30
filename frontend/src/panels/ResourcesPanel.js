@@ -420,9 +420,10 @@ export class ResourcesPanel extends Panel {
     const columns = RESOURCE_COLUMNS[apiResource] || [];
     [...columns.map((col) => col.key), "age"].forEach((field) => {
       const element = item.querySelector(`.resource-${field}`);
-      if (element && element.textContent !== resource[field]) {
-        element.textContent = resource[field];
-        element.dataset[field] = resource[field];
+      const value = resource[field] ?? resource.spec?.[field] ?? "";
+      if (element && element.textContent !== String(value)) {
+        element.textContent = value;
+        element.dataset[field] = value;
       }
     });
   }
