@@ -99,7 +99,7 @@ export class ClustersManager {
       if (!this._updateInterval) {
         this._updateInterval = setInterval(
           () => this.updateClustersList(clustersList),
-          1000,
+          11000,
         );
       }
 
@@ -120,36 +120,56 @@ export class ClustersManager {
     let hasChanges = false;
     const clusterPromises = Object.entries(clusters).map(
       async ([clusterName]) => {
-        const isConnected = await TestClusterConnectivity(clusterName);
-        const statusElement = document.getElementById(`status-${clusterName}`);
-        const clusterElement = document.getElementById(
-          `cluster-${clusterName}`,
-        );
+        try {
+          // Таймаут 5 секунд на проверку
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), 10000),
+          );
+          console.log(`Checking connectivity for cluster ${clusterName}`);
+          const isConnected = await Promise.race([
+            TestClusterConnectivity(clusterName),
+            timeoutPromise,
+          ]);
+          const statusElement = document.getElementById(
+            `status-${clusterName}`,
+          );
+          const clusterElement = document.getElementById(
+            `cluster-${clusterName}`,
+          );
 
-        if (statusElement) {
-          const newStatusClass = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
-          if (statusElement.className !== newStatusClass) {
-            statusElement.className = newStatusClass;
-            statusElement.title = isConnected ? "Connected" : "Disconnected";
-            hasChanges = true;
+          if (statusElement) {
+            const newStatusClass = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
+            if (statusElement.className !== newStatusClass) {
+              statusElement.className = newStatusClass;
+              statusElement.title = isConnected ? "Connected" : "Disconnected";
+              hasChanges = true;
+            }
           }
-        }
 
-        if (clusterElement) {
-          const shouldBeDisabled = !isConnected;
-          const isCurrentlyDisabled =
-            clusterElement.classList.contains("disabled");
+          if (clusterElement) {
+            const shouldBeDisabled = !isConnected;
+            const isCurrentlyDisabled =
+              clusterElement.classList.contains("disabled");
 
-          if (shouldBeDisabled !== isCurrentlyDisabled) {
-            clusterElement.classList.toggle("disabled", shouldBeDisabled);
-            clusterElement.onclick = isConnected
-              ? () => this.app.selectCluster(clusterName)
-              : null;
-            hasChanges = true;
+            if (shouldBeDisabled !== isCurrentlyDisabled) {
+              clusterElement.classList.toggle("disabled", shouldBeDisabled);
+              clusterElement.onclick = isConnected
+                ? () => this.app.selectCluster(clusterName)
+                : null;
+              hasChanges = true;
+            }
           }
+          console.log(
+            `Fetched cluster status for ${clusterName}. Status is ${isConnected ? "connected" : "disconnected"}.`,
+          );
+          return { clusterName, isConnected };
+        } catch (error) {
+          console.error(
+            `Error fetching cluster status for ${clusterName}:`,
+            error,
+          );
+          return { clusterName, isConnected: false };
         }
-
-        return { clusterName, isConnected };
       },
     );
 
@@ -184,32 +204,6 @@ export class ClustersManager {
     );
 
     return clusterItem;
-  }
-
-  async checkConnectivity(clusters) {
-    const clusterPromises = Object.entries(clusters).map(
-      async ([clusterName]) => {
-        const isConnected = await TestClusterConnectivity(clusterName);
-        const statusElement = document.getElementById(`status-${clusterName}`);
-        const clusterElement = document.getElementById(
-          `cluster-${clusterName}`,
-        );
-
-        if (statusElement) {
-          statusElement.className = `clusterStatus ${isConnected ? "connected" : "disconnected"}`;
-          statusElement.title = isConnected ? "Connected" : "Disconnected";
-        }
-
-        if (clusterElement) {
-          clusterElement.classList.toggle("disabled", !isConnected);
-          clusterElement.onclick = isConnected
-            ? () => this.app.selectCluster(clusterName)
-            : null;
-        }
-      },
-    );
-
-    await Promise.all(clusterPromises);
   }
 
   async updateClusterStatus(cluster, mainScreen) {

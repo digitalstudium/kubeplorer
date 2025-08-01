@@ -367,8 +367,18 @@ export class ResourcesPanel extends Panel {
       this.updateStatistics();
     } catch (error) {
       if (error.name !== "AbortError") {
-        const apiResource = this.stateManager.getState("selectedApiResource");
-        console.error(`Error fetching ${apiResource || "resources"}:`, error);
+        // Обрабатываем строковые ошибки
+        const errorMessage =
+          typeof error === "string" ? error : error.message || "Unknown error";
+
+        const displayMessage = `Error loading resources: ${errorMessage}`;
+
+        this.listEl.innerHTML = `
+          <div class="no-resources error">
+            <i class="fas fa-exclamation-triangle"></i>
+            ${displayMessage}
+          </div>
+        `;
       }
     } finally {
       if (this.currentUpdateAbortController === abortController) {

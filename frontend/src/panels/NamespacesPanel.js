@@ -74,7 +74,7 @@ export class NamespacesPanel extends StatefulPanel {
       this.registerForUpdates(
         `namespaces-${this.cluster}`,
         () => this.update(),
-        5000,
+        10000,
       );
     }
   }

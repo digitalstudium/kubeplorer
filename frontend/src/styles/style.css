@@ -1673,3 +1673,15 @@ body {
 .list::-webkit-scrollbar-corner {
   background: #333;
 }
+
+/* Добавить в раздел .no-resources */
+.no-resources.error {
+  color: #ff6b6b;
+  font-weight: bold;
+  border-left: 3px solid #ff6b6b;
+  padding-left: 10px;
+}
+
+.no-resources.error i {
+  margin-right: 8px;
+}
