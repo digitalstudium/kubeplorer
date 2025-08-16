@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -373,56 +374,6 @@ func formatAge(timestamp string) string {
 	}
 }
 
-// GetResourcesInNamespace retrieves resources of a given type from a specific namespace in a cluster.
-// First, create helper functions for pod and deployment processing:
-func calculatePodStatus(pod unstructured.Unstructured) (status string, restarts int32, readyStatus string) {
-	if pod.GetDeletionTimestamp() != nil {
-		return "Terminating", 0, calculatePodReadyStatus(pod)
-	}
-
-	statusObj := extractMap(pod.Object, "status")
-	status = extractString(statusObj, "phase")
-
-	for _, cs := range extractSlice(statusObj, "containerStatuses") {
-		if container, ok := cs.(map[string]interface{}); ok {
-			restarts += int32(extractInt64(container, "restartCount"))
-
-			if state := extractMap(container, "state"); len(state) > 0 {
-				if waiting := extractMap(state, "waiting"); len(waiting) > 0 {
-					if reason := extractString(waiting, "reason"); reason != "" {
-						status = reason
-						break
-					}
-				} else if terminated := extractMap(state, "terminated"); len(terminated) > 0 {
-					if reason := extractString(terminated, "reason"); reason != "" {
-						status = reason
-						break
-					}
-				}
-			}
-		}
-	}
-
-	return status, restarts, calculatePodReadyStatus(pod)
-}
-
-func extractContainerNames(spec map[string]interface{}) []string {
-	var containerNames []string
-
-	// Добавляем имена из init containers и regular containers
-	for _, containerType := range []string{"initContainers", "containers"} {
-		for _, c := range extractSlice(spec, containerType) {
-			if m, ok := c.(map[string]interface{}); ok {
-				if name := extractString(m, "name"); name != "" {
-					containerNames = append(containerNames, name)
-				}
-			}
-		}
-	}
-
-	return containerNames
-}
-
 // Now the simplified main function:
 func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace string) ([]interface{}, error) {
 	clients, err := a.getKubeClients(clusterName)
@@ -453,13 +404,19 @@ func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace strin
 
 		switch strings.ToLower(resourceInfo.Kind) {
 		case "pod":
-			status, restarts, readyStatus := calculatePodStatus(item)
+			p, err := toPod(item)
+			if err != nil {
+				log.Printf("toPod error: %v", err)
+				responses = append(responses, base)
+				break
+			}
+			status, restarts, readyStatus, containers := summarizePod(p)
 			pod := PodResponse{
 				ResourceResponse: base,
 				Status:           status,
 				Restarts:         restarts,
 				ReadyStatus:      readyStatus,
-				Containers:       extractContainerNames(extractMap(item.Object, "spec")),
+				Containers:       containers,
 			}
 			responses = append(responses, pod)
 		case "deployment":
@@ -556,71 +513,6 @@ func (a *App) GetPodContainerLogs(clusterName, namespace, podName, containerName
 	}
 
 	return buf.String(), nil
-}
-
-func calculatePodReadyStatus(pod unstructured.Unstructured) string {
-	// Extract the pod's status and spec
-	status := extractMap(pod.Object, "status")
-	spec := extractMap(pod.Object, "spec")
-
-	// Get the container statuses
-	containerStatuses, ok := status["containerStatuses"].([]interface{})
-	if !ok {
-		containerStatuses = []interface{}{}
-	}
-
-	// Get the init container statuses
-	initContainerStatuses, ok := status["initContainerStatuses"].([]interface{})
-	if !ok {
-		initContainerStatuses = []interface{}{}
-	}
-
-	// Extract the list of containers from the spec
-	containers := extractSlice(spec, "containers")
-
-	// Count only regular containers for totalContainers
-	totalContainers := len(containers)
-
-	// Count only running init containers for totalContainers
-	for _, initContainerStatus := range initContainerStatuses {
-		if ics, ok := initContainerStatus.(map[string]interface{}); ok {
-			if state, ok := ics["state"].(map[string]interface{}); ok {
-				if _, ok := state["running"]; ok {
-					totalContainers++
-				}
-			}
-		}
-	}
-
-	if totalContainers == 0 {
-		return "0/0"
-	}
-
-	readyCount := 0
-
-	// Check container statuses
-	for _, containerStatus := range containerStatuses {
-		if cs, ok := containerStatus.(map[string]interface{}); ok {
-			if ready, ok := cs["ready"].(bool); ok && ready {
-				readyCount++
-			}
-		}
-	}
-
-	// Check init container statuses, counting only running and ready ones
-	for _, initContainerStatus := range initContainerStatuses {
-		if ics, ok := initContainerStatus.(map[string]interface{}); ok {
-			if state, ok := ics["state"].(map[string]interface{}); ok {
-				if _, ok := state["running"]; ok {
-					if ready, ok := ics["ready"].(bool); ok && ready {
-						readyCount++
-					}
-				}
-			}
-		}
-	}
-
-	return fmt.Sprintf("%d/%d", readyCount, totalContainers)
 }
 
 // extractDeploymentFields extracts deployment-specific fields from an unstructured object
@@ -2082,4 +1974,41 @@ func resourceInterface(dc dynamic.Interface, gvr schema.GroupVersionResource, na
 		return dc.Resource(gvr).Namespace(ns)
 	}
 	return dc.Resource(gvr)
+}
+
+func toPod(u unstructured.Unstructured) (*corev1.Pod, error) {
+	var p corev1.Pod
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &p)
+	return &p, err
+}
+
+func summarizePod(p *corev1.Pod) (status string, restarts int32, ready string, containers []string) {
+	if p.DeletionTimestamp != nil {
+		status = "Terminating"
+	} else {
+		status = string(p.Status.Phase)
+		for _, cs := range p.Status.ContainerStatuses {
+			restarts += cs.RestartCount
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+				status = cs.State.Waiting.Reason
+			}
+			if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
+				status = cs.State.Terminated.Reason
+			}
+		}
+	}
+	readyCnt := 0
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Ready {
+			readyCnt++
+		}
+	}
+	ready = fmt.Sprintf("%d/%d", readyCnt, len(p.Spec.Containers))
+	for _, c := range p.Spec.InitContainers {
+		containers = append(containers, c.Name)
+	}
+	for _, c := range p.Spec.Containers {
+		containers = append(containers, c.Name)
+	}
+	return
 }
