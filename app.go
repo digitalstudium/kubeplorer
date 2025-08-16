@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -420,12 +421,20 @@ func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace strin
 			}
 			responses = append(responses, pod)
 		case "deployment":
-			deployment, err := extractDeploymentFields(item)
+			d, err := toDeployment(item)
 			if err != nil {
-				log.Printf("Error extracting deployment fields: %v", err)
-				continue
+				log.Printf("toDeployment error: %v", err)
+				responses = append(responses, base)
+				break
 			}
-			responses = append(responses, deployment)
+			ready, upToDate, available := summarizeDeployment(d)
+			dep := DeploymentResponse{
+				ResourceResponse: base,
+				Ready:            ready,
+				UpToDate:         upToDate,
+				Available:        available,
+			}
+			responses = append(responses, dep)
 		default:
 			responses = append(responses, base)
 		}
@@ -513,44 +522,6 @@ func (a *App) GetPodContainerLogs(clusterName, namespace, podName, containerName
 	}
 
 	return buf.String(), nil
-}
-
-// extractDeploymentFields extracts deployment-specific fields from an unstructured object
-func extractDeploymentFields(item unstructured.Unstructured) (DeploymentResponse, error) {
-	// Base resource information
-	deployment := DeploymentResponse{
-		ResourceResponse: ResourceResponse{
-			Name:     item.GetName(),
-			Kind:     item.GetKind(),
-			Metadata: extractMap(item.Object, "metadata"),
-			Spec:     extractMap(item.Object, "spec"),
-			Age:      formatAge(item.GetCreationTimestamp().Format(timeFormat)),
-		},
-	}
-
-	// Extract status
-	status := extractMap(item.Object, "status")
-
-	// Ready replicas calculation
-	spec := extractMap(item.Object, "spec")
-	replicas := extractInt64(spec, "replicas")
-	if replicas == 0 {
-		// If no replicas specified, try to get from status
-		replicas = extractInt64(status, "replicas")
-	}
-
-	// Up-to-date replicas
-	upToDateReplicas := extractInt64(status, "updatedReplicas")
-	deployment.UpToDate = int32(upToDateReplicas)
-
-	// Available replicas
-	availableReplicas := extractInt64(status, "availableReplicas")
-	deployment.Available = int32(availableReplicas)
-
-	// Ready status
-	deployment.Ready = fmt.Sprintf("%d/%d", availableReplicas, replicas)
-
-	return deployment, nil
 }
 
 type OllamaProxy struct{}
@@ -1201,12 +1172,8 @@ func (a *App) findChildResources(clients *KubeClients, namespace, ownerUID strin
 
 			log.Printf("🔍 Checking resource type: %s (GVR: %s)", resource.Name, gvr.String())
 
-			var list *unstructured.UnstructuredList
-			if resource.Namespaced {
-				list, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
-			} else {
-				list, err = clients.DynamicClient.Resource(gvr).List(context.Background(), metav1.ListOptions{})
-			}
+			resourceClient := resourceInterface(clients.DynamicClient, gvr, resource.Namespaced, namespace)
+			list, err := resourceClient.List(context.Background(), metav1.ListOptions{})
 			if err != nil {
 				log.Printf("❌ Failed to list %s: %v", resource.Name, err)
 				continue
@@ -2010,5 +1977,22 @@ func summarizePod(p *corev1.Pod) (status string, restarts int32, ready string, c
 	for _, c := range p.Spec.Containers {
 		containers = append(containers, c.Name)
 	}
+	return
+}
+
+func toDeployment(u unstructured.Unstructured) (*appsv1.Deployment, error) {
+	var d appsv1.Deployment
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &d)
+	return &d, err
+}
+
+func summarizeDeployment(d *appsv1.Deployment) (ready string, upToDate, available int32) {
+	replicas := int32(1)
+	if d.Spec.Replicas != nil {
+		replicas = *d.Spec.Replicas
+	}
+	upToDate = d.Status.UpdatedReplicas
+	available = d.Status.AvailableReplicas
+	ready = fmt.Sprintf("%d/%d", available, replicas)
 	return
 }
