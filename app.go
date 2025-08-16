@@ -435,12 +435,8 @@ func (a *App) GetResourcesInNamespace(clusterName, resourceName, namespace strin
 		return nil, err
 	}
 
-	var list *unstructured.UnstructuredList
-	if resourceInfo.Namespaced {
-		list, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
-	} else {
-		list, err = clients.DynamicClient.Resource(gvr).List(context.Background(), metav1.ListOptions{})
-	}
+	resourceClient := resourceInterface(clients.DynamicClient, gvr, resourceInfo.Namespaced, namespace)
+	list, err := resourceClient.List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list resources: %w", err)
 	}
@@ -492,12 +488,8 @@ func (a *App) GetResourceYAML(clusterName, resourceName, namespace, name string)
 		return "", err
 	}
 
-	var obj *unstructured.Unstructured
-	if resourceInfo.Namespaced {
-		obj, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
-	} else {
-		obj, err = clients.DynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
-	}
+	resourceClient := resourceInterface(clients.DynamicClient, gvr, resourceInfo.Namespaced, namespace)
+	obj, err := resourceClient.Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get resource: %w", err)
 	}
@@ -528,13 +520,8 @@ func (a *App) DeleteResource(clusterName, namespace, apiResource, name string) e
 		return err
 	}
 
-	if resourceInfo.Namespaced {
-		err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
-	} else {
-		err = clients.DynamicClient.Resource(gvr).Delete(context.Background(), name, metav1.DeleteOptions{})
-	}
-
-	if err != nil {
+	resourceClient := resourceInterface(clients.DynamicClient, gvr, resourceInfo.Namespaced, namespace)
+	if err := resourceClient.Delete(context.Background(), name, metav1.DeleteOptions{}); err != nil {
 		if errors.IsNotFound(err) {
 			return fmt.Errorf("resource %q of type %q not found in namespace %q", name, apiResource, namespace)
 		}
@@ -1004,13 +991,9 @@ func (a *App) GetEvents(clusterName, resourceName, namespace, name string) (stri
 		return "", err
 	}
 
-	// Get the resource to extract its UID
-	var obj *unstructured.Unstructured
-	if resourceInfo.Namespaced {
-		obj, err = clients.DynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
-	} else {
-		obj, err = clients.DynamicClient.Resource(gvr).Get(context.Background(), name, metav1.GetOptions{})
-	}
+	// Получаем сам ресурс (через helper ri)
+	resourceClient := resourceInterface(clients.DynamicClient, gvr, resourceInfo.Namespaced, namespace)
+	obj, err := resourceClient.Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get resource: %w", err)
 	}
@@ -1022,17 +1005,11 @@ func (a *App) GetEvents(clusterName, resourceName, namespace, name string) (stri
 
 	// Get events
 	eventsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "events"}
-	var events *unstructured.UnstructuredList
+	eventsClient := resourceInterface(clients.DynamicClient, eventsGVR, resourceInfo.Namespaced, namespace)
 
-	if resourceInfo.Namespaced {
-		events, err = clients.DynamicClient.Resource(eventsGVR).Namespace(namespace).List(context.Background(), metav1.ListOptions{
-			FieldSelector: fmt.Sprintf("involvedObject.uid=%s", uid),
-		})
-	} else {
-		events, err = clients.DynamicClient.Resource(eventsGVR).List(context.Background(), metav1.ListOptions{
-			FieldSelector: fmt.Sprintf("involvedObject.uid=%s", uid),
-		})
-	}
+	events, err := eventsClient.List(context.Background(), metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.uid=%s", uid),
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to list events: %w", err)
 	}
@@ -2097,4 +2074,12 @@ func (a *App) getResourceByUID(clients *KubeClients, namespace, uid string) (*un
 	}
 
 	return nil, fmt.Errorf("resource with UID %s not found", uid)
+}
+
+// resourceInterface возвращает правильный resourceInterface с учетом того, namespaced ли ресурс.
+func resourceInterface(dc dynamic.Interface, gvr schema.GroupVersionResource, namespaced bool, ns string) dynamic.ResourceInterface {
+	if namespaced && ns != "" {
+		return dc.Resource(gvr).Namespace(ns)
+	}
+	return dc.Resource(gvr)
 }
